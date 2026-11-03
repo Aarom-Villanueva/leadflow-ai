@@ -27,4 +27,4 @@ Duplicados: email normalizado (trim y dominio/caja según política documentada;
 4. Usuario de otra organización intenta leer, modificar, importar y consultar IA sobre IDs ajenos: sin acceso ni filtración de existencia.
 
 ## Objetivos no funcionales propuestos
-Conjunto representativo de 10 000 prospectos/tenant, 20 usuarios concurrentes; p95 de lecturas normales <500 ms en región acordada, excluyendo proveedor IA. Medir antes de comprometer SLA. Accesibilidad WCAG 2.2 AA en recorridos principales. Compatibilidad navegadores actuales Chromium/Firefox/WebKit. Cuotas y tamaños en SECURITY; RPO/RTO en QUALITY.
+Conjunto representativo de 10 000 prospectos/tenant, 20 usuarios concurrentes; p95 de lecturas normales <500 ms en región acordada, excluyendo proveedor IA. Medir antes de comprometer SLA. Accesibilidad: objetivo WCAG 2.2 AA en recorridos principales, verificado con axe-core en CI (ver QUALITY.md) como mínimo automatizable; no se declara conformidad AA completa sin auditoría manual complementaria antes de un piloto real. Compatibilidad navegadores actuales Chromium/Firefox/WebKit. Cuotas y tamaños en SECURITY; RPO/RTO en QUALITY.

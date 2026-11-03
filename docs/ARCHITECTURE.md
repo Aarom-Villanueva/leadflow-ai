@@ -32,6 +32,8 @@ Propuesta de estructura futura: src/modules/{identity,organizations,leads,pipeli
 
 Identidad autentica; organizaciones produce ActorContext validado {userId, organizationId, role, requestId}. Nunca aceptar rol de cliente. Servicios usan políticas y repositorios exigen contexto; nadie consulta tablas de otro dominio directamente desde componentes. Analytics usa consultas revisadas; IA usa datos seleccionados vía servicios comerciales, no acceso SQL arbitrario. Audit se escribe en la misma transacción de cambios sensibles.
 
+`ai_usage_buckets` e `idempotency_records` pertenecen a `src/shared` (no a `ai` ni a ningún módulo de dominio); solo se accede a ellas mediante un servicio de infraestructura compartido. `jobs`, si D-005 lo aprueba, pertenece igualmente a `src/shared`. Ningún módulo de dominio escribe estas tablas directamente, para evitar que LF-008/LF-009 colisionen de esquema al trabajar en paralelo.
+
 ## Contratos de servidor y caché
 Route Handlers para importación y operaciones IA; Server Actions pueden adaptar formularios con los mismos servicios, validación, CSRF y autorización. No exponer Drizzle ni claves al cliente. Formato de error: {code, message seguro, requestId, fieldErrors opcionales}; 401 sin sesión, 403 para capacidad prohibida, 404 para recurso inexistente/ajeno, 409 conflicto, 422 inválido, 429 cuota y 503 dependencia temporal. Sin stack traces públicos.
 

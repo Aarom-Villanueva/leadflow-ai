@@ -6,7 +6,7 @@ SDD: especificación con contratos y criterios antes de código. ODD: incremento
 ## Estrategia de pruebas futura
 - Vitest: políticas de rol, validaciones, normalización, transiciones, métricas y contratos de proveedor fake.
 - Integración con PostgreSQL real y rol runtime: FKs, RLS, contexto ausente, pool que alterna tenants, carreras de cuotas/owner/importación, rollback de auditoría y migraciones desde versión anterior. No sustituir aislamiento por mocks.
-- Playwright: login, organización, CRUD y pipeline, seguimiento, importación con errores, dashboard y borrador IA. Dos tenants y roles separados; verificación visual accesible y controles de teclado.
+- Playwright: login, organización, CRUD y pipeline, seguimiento, importación con errores, dashboard y borrador IA. Dos tenants y roles separados; controles de teclado y verificación automatizada de accesibilidad con axe-core (p. ej. axe-playwright) en cada recorrido principal, sin sustituir revisión manual de lectores de pantalla antes de un piloto real.
 - Contratos IA con fake en CI: timeout, rechazo, salida malformada, inyección, 429 y uso. Proveedor real solo prueba opt-in autorizada con presupuesto; no requisito de PR.
 - CI propuesto: instalación congelada, lint, tipos, unitarias/integración, build y E2E representativo. Jobs sin credenciales productivas; PostgreSQL efímero con fixtures sintéticos. Guardar conteos y exit status. Cero tests no significa suite aprobada.
 
