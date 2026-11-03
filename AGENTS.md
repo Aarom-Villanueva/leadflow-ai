@@ -6,7 +6,7 @@ Leer este archivo, docs/PRODUCT.md, docs/PRD.md, docs/DECISIONS.md y la especifi
 ## Trabajo coordinado
 - Usar el checkout aislado existente y una rama por tarea; nunca modificar main directamente. No crear worktrees salvo solicitud expresa.
 - Codex y Claude comparten estas reglas; CLAUDE.md solo las referencia.
-- Registrar responsable, rama, base SHA, alcance y archivos reservados en docs/HANDOFF.md antes de empezar. Evitar edición simultánea de los mismos archivos. Una reserva es coordinación documental, no un bloqueo técnico: comprobar PRs activos y acordar conflictos.
+- Registrar responsable, rama, base SHA, alcance, archivos reservados y manifiesto de hashes SHA-256 de los archivos entregados en docs/HANDOFF.md antes de empezar. Evitar edición simultánea de los mismos archivos. La reserva es coordinación documental reforzada por un check de CI (criterio de aceptación de LF-001, ver docs/specs/LF-001.md) que bloquea el merge —no el trabajo en rama— si un PR toca un archivo reservado por otra tarea activa; mientras ese check no exista, comprobar manualmente PRs activos y acordar conflictos.
 - Cambios de esquema, permisos, contratos API, errores o especificaciones compartidas requieren propuesta versionada, revisión del otro agente y aprobación del propietario antes de implementarse. Documentar compatibilidad y migración.
 - PR contra main con identificador, objetivo, commit revisable, pruebas realmente ejecutadas y resultados, riesgos y pendientes. No integrar sin revisión independiente ni autoaprobarse. El propietario autoriza la integración.
 - No exponer secretos ni datos personales en código, prompts, logs, fixtures o documentación. No ampliar alcance unilateralmente.
