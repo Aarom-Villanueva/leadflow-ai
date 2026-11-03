@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+:root { color-scheme: dark; }
+body { margin: 0; background: #0b1418; color: #edf3f1; font-family: Arial, Helvetica, sans-serif; }
+::selection { background: #c6f76a; color: #0b1418; }
+.skip-link { position: absolute; left: 1rem; top: -6rem; z-index: 50; padding: 1rem; background: #c6f76a; color: #0b1418; }
+.skip-link:focus { top: 1rem; }
+html { scroll-padding-top: 2rem; }
