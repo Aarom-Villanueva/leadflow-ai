@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("home identifies the product and supports keyboard navigation", async ({ page }) => {
@@ -32,4 +33,29 @@ test("unknown pages return 404 without internal details", async ({ page }) => {
   const response = await page.goto("/does-not-exist");
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "Página no encontrada" })).toBeVisible();
+});
+
+test("production security headers protect HTML and health consistently", async ({ request }) => {
+  for (const path of ["/", "/api/health"]) {
+    const response = await request.get(path);
+    const headers = response.headers();
+    expect(headers["x-frame-options"]).toBe("DENY");
+    expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+    expect(headers["permissions-policy"]).toContain("camera=()");
+    const csp = headers["content-security-policy"];
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).not.toContain("unsafe-eval");
+    expect(csp).not.toContain("https:");
+  }
+});
+
+test("home has no automated WCAG A/AA violations on desktop and mobile", async ({ page }) => {
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+    expect(results.violations).toEqual([]);
+  }
 });

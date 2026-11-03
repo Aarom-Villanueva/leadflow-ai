@@ -20,3 +20,76 @@
 
 ## Cómo continuar
 Leer AGENTS.md y verificar git status y base SHA antes de editar. Registrar aquí nuevos responsables y reservas; para cada revisión indicar SHA exacto, hallazgos, pruebas ejecutadas/no ejecutadas, riesgos y siguiente paso. Incluir manifiesto de hashes SHA-256 de los archivos entregados y, cuando exista el check de CI de LF-001, si detectó o no conflicto. No interpretar este documento como lock automático ni como aprobación del diseño.
+
+## Registro automático de coordinación
+
+Este registro versionado es la fuente operativa de reservas, no las notas históricas anteriores. `active` reserva archivos hasta integración; `completed` no bloquea. Rutas glob relativas a la raíz, separadas por comas en ROADMAP y como arrays aquí. No iniciar trabajo sobre reservas ajenas. LF-000/LF-000a ya integradas según main 9c6971b; sus reservas históricas se consideran cerradas.
+
+```json
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "LF-000",
+      "owner": "Codex",
+      "branch": "codex/lf-000-architecture",
+      "state": "completed",
+      "files": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md",
+        "docs/**"
+      ]
+    },
+    {
+      "id": "LF-000a",
+      "owner": "Claude Code",
+      "branch": "claude/lf-000a-correcciones-documentales",
+      "state": "completed",
+      "files": [
+        "AGENTS.md",
+        "README.md",
+        "docs/**"
+      ]
+    },
+    {
+      "id": "LF-001",
+      "owner": "Codex",
+      "branch": "integration/lf-001-foundation",
+      "state": "active",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        ".nvmrc",
+        ".npmrc",
+        ".gitignore",
+        ".env.example",
+        "tsconfig.json",
+        "next-env.d.ts",
+        "next.config.ts",
+        "postcss.config.mjs",
+        "eslint.config.mjs",
+        "vitest.config.ts",
+        "playwright.config.ts",
+        "src/**",
+        "tests/**",
+        "scripts/**",
+        ".github/workflows/**",
+        "README.md",
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001.md",
+        "docs/LF-001-REVIEW.md"
+      ]
+    }
+  ]
+}
+```
+
+## LF-001 — correcciones finales en PR #3
+
+- Responsable: Codex; revisión independiente: Claude Code. Rama `integration/lf-001-foundation`; head inicial del PR `754fa06448ec93ab30323d5a8e36bc5b1d88e0dc`.
+- Base actual incorporada sin conflictos: `origin/main` en `9c6971b`; merge local `e1c3a5b`. Se preservó la arquitectura aprobada y sus correcciones. La autorización del propietario cubre estas correcciones LF-001, no LF-002 ni producción.
+- Reserva activa: registro automático anterior; objetivo y pruebas en docs/specs/LF-001.md. Evidencia y riesgo residual se registran en docs/LF-001-REVIEW.md.
+- Manifiesto SHA-256: mensaje del commit de entrega documental (hashes de los archivos cambiados en LF-001 respecto de main); evita un hash autorreferente de HANDOFF. El diff y SHA del candidato son las unidades de revisión.
+- Próxima acción: revisar candidato y checks del PR #3; configurar `Coordination gate` como requerido en protección de main si aún no lo está. No fusionar ni empezar otro módulo hasta configurar el orquestador y recibir autorización.
