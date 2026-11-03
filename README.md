@@ -8,7 +8,7 @@ Estado: **LF-000 integrada, D-001 aprobada y LF-001 en revisión (PR #3)**. Exis
 - [Producto](docs/PRODUCT.md) y [requisitos](docs/PRD.md).
 - [Arquitectura](docs/ARCHITECTURE.md), [datos](docs/DATA_MODEL.md) y [seguridad](docs/SECURITY.md).
 - [Calidad y operación](docs/QUALITY.md), [roadmap](docs/ROADMAP.md) y [decisiones](docs/DECISIONS.md).
-- [LF-001](docs/specs/LF-001.md): base técnica futura, bloqueada por aprobación del diseño.
+- [LF-001](docs/specs/LF-001.md): base técnica implementada y bajo revisión final en PR #3.
 - [LF-002a](docs/specs/LF-002a.md): spike de validación Better Auth + membresías + RLS, bloqueante para el resto de LF-002.
 - [Reglas comunes](AGENTS.md) y [handoff](docs/HANDOFF.md).
 

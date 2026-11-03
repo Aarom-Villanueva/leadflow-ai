@@ -49,3 +49,11 @@ Seguimiento: revisar versiones upstream compatibles antes de actualizar lint, re
 Hosting final sigue diferido explícitamente por D-001; esta fase prueba Node/build local. No se contrataron ni se evaluaron como definitivos recursos de producción. Better Auth/Drizzle/PostgreSQL y pooling/RLS se validarán mediante LF-002a; no se afirma compatibilidad todavía.
 
 La evidencia local es positiva. Publicación final, resultado de Actions y protección de rama se anotarán en el handoff de cierre; no se afirma un check remoto aprobado antes de observarlo. El cierre completo requiere revisión del candidato y confirmación de los gates remotos. No continuar LF-002 ni otro módulo hasta configurar el orquestador y recibir autorización.
+
+## Resultado remoto observado
+
+Candidato de código `850486b`: [Actions 41734771182](https://github.com/Aarom-Villanueva/leadflow-ai/actions/runs/41734771182), **Success**, duración 1m 56s; Coordination gate 10s y Foundation verification 1m 40s. Se consultó la página pública porque la API GraphQL responde Forbidden. El estado observado se vincula a ese SHA; la entrega final verifica el run del commit documental posterior sin atribuirle este resultado antes de tiempo.
+
+Acciones v6: manifests oficiales usan node24; mínimo runner 2.327.1, y checkout documenta 2.329.0 para Git autenticado desde container actions. Este workflow usa ubuntu-24.04 administrado y no container actions. No se reportan como ejecutadas pruebas de un runner self-hosted.
+
+Implementación y verificaciones del candidato de código: completas. Cierre formal: sujeto a revisión independiente del nuevo candidato y confirmación de que el gate es requerido en las reglas de main; no se pudo consultar esa configuración con la API disponible. No se modificaron esas reglas ni se fusionó el PR.
