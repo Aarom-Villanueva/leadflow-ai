@@ -20,3 +20,85 @@
 
 ## Cómo continuar
 Leer AGENTS.md y verificar git status y base SHA antes de editar. Registrar aquí nuevos responsables y reservas; para cada revisión indicar SHA exacto, hallazgos, pruebas ejecutadas/no ejecutadas, riesgos y siguiente paso. Incluir manifiesto de hashes SHA-256 de los archivos entregados y, cuando exista el check de CI de LF-001, si detectó o no conflicto. No interpretar este documento como lock automático ni como aprobación del diseño.
+
+## Registro automático de coordinación
+
+Este registro versionado es la fuente operativa de reservas, no las notas históricas anteriores. `active` reserva archivos hasta integración; `completed` no bloquea. Rutas glob relativas a la raíz, separadas por comas en ROADMAP y como arrays aquí. No iniciar trabajo sobre reservas ajenas. LF-000/LF-000a ya integradas según main 9c6971b; sus reservas históricas se consideran cerradas.
+
+```json
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "LF-000",
+      "owner": "Codex",
+      "branch": "codex/lf-000-architecture",
+      "state": "completed",
+      "files": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md",
+        "docs/**"
+      ]
+    },
+    {
+      "id": "LF-000a",
+      "owner": "Claude Code",
+      "branch": "claude/lf-000a-correcciones-documentales",
+      "state": "completed",
+      "files": [
+        "AGENTS.md",
+        "README.md",
+        "docs/**"
+      ]
+    },
+    {
+      "id": "LF-001",
+      "owner": "Codex",
+      "branch": "integration/lf-001-foundation",
+      "state": "active",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        ".nvmrc",
+        ".npmrc",
+        ".gitignore",
+        ".env.example",
+        "tsconfig.json",
+        "next-env.d.ts",
+        "next.config.ts",
+        "postcss.config.mjs",
+        "eslint.config.mjs",
+        "vitest.config.ts",
+        "playwright.config.ts",
+        "src/**",
+        "tests/**",
+        "scripts/**",
+        ".github/workflows/**",
+        "README.md",
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001.md",
+        "docs/LF-001-REVIEW.md"
+      ]
+    }
+  ]
+}
+```
+
+## LF-001 — correcciones finales en PR #3
+
+- Responsable: Codex; revisión independiente: Claude Code. Rama `integration/lf-001-foundation`; head inicial del PR `754fa06448ec93ab30323d5a8e36bc5b1d88e0dc`.
+- Base actual incorporada sin conflictos: `origin/main` en `9c6971b`; merge local `e1c3a5b`. Se preservó la arquitectura aprobada y sus correcciones. La autorización del propietario cubre estas correcciones LF-001, no LF-002 ni producción.
+- Reserva activa: registro automático anterior; objetivo y pruebas en docs/specs/LF-001.md. Evidencia y riesgo residual se registran en docs/LF-001-REVIEW.md.
+- Manifiesto SHA-256: mensaje del commit de entrega documental (hashes de los archivos cambiados en LF-001 respecto de main); evita un hash autorreferente de HANDOFF. El diff y SHA del candidato son las unidades de revisión.
+- Próxima acción: revisar candidato y checks del PR #3; configurar `Coordination gate` como requerido en protección de main si aún no lo está. No fusionar ni empezar otro módulo hasta configurar el orquestador y recibir autorización.
+
+### Evidencia del candidato LF-001
+
+- Candidato de código: `850486b` (fix(LF-001): enforce coordination and complete foundation review), sobre merge `e1c3a5b`. Commit de entrega documental: el que contiene esta sección; su mensaje incluye el manifiesto SHA-256 de todos los archivos entregados respecto de main.
+- Comandos ejecutados: npm ci, npm run lint, npm run typecheck, npm test, npm run build, npm run test, npm run test:coordination, npm run test:e2e y npm ls --all; todos exit 0. Unidad: 9 Vitest + 9 coordinación, repetidas después del build. E2E: 6, incluidas axe-core desktop/móvil y cabeceras. Sin llamadas de IA ni DB.
+- Gate real contra main: LF-001, 35 archivos previstos, foundation=true, sin conflictos; CLI negativo en fixture detecta reserva LF-003 y retorna exit 1.
+- GitHub: candidato 850486b publicado en PR #3. Ejecución observada: https://github.com/Aarom-Villanueva/leadflow-ai/actions/runs/41734771182 **Success**, 1m 56s; Coordination gate 10s y Foundation verification 1m 40s). La API GraphQL devuelve Forbidden; se verificó la conclusión por la página pública del run. La entrega final identifica también la ejecución del commit documental de cierre.
+- Pendientes: 16 avisos moderados derivados de minimatch en tooling dev-only; ESLint 9 sin soporte hasta que sus plugins admitan 10; navegador estándar Playwright bloqueado en este Cloud (se probó Chromium del sistema); confirmar reglas de protección de main y revisión del candidato por Claude/propietario. Detalles en LF-001-REVIEW.md.
+- Ningún merge, despliegue ni LF-002. Detenerse al terminar estas verificaciones; no iniciar otro módulo antes de configurar el orquestador.
