@@ -10,7 +10,7 @@
       "id": "LF-001a",
       "owner": "ChatGPT",
       "reviewer": "Claude",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": [],
       "required_decisions": [
         "D-001"
@@ -21,7 +21,7 @@
       "id": "LF-002a",
       "owner": "Codex",
       "reviewer": "Claude",
-      "status": "queued",
+      "status": "blocked",
       "depends_on": [
         "LF-001a"
       ],
