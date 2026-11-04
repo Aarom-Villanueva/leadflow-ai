@@ -180,13 +180,31 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-013",
       "owner": "ChatGPT",
       "branch": "fix/lf-013-autopilot-backlog-reconciliation",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/autopilot/BACKLOG.json",
         "tests/coordination/autopilot.test.mjs",
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-013.md"
+      ],
+      "completion": {
+        "head_sha": "dc95925161f8cb705840904fd1da0c7eb9f74f9a",
+        "merge_sha": "c160de9c9424918381d3bb67d64f729a0907e8db"
+      }
+    },
+    {
+      "id": "LF-014",
+      "owner": "ChatGPT",
+      "branch": "security/lf-014-autopilot-done-proof",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-014.md",
+        "scripts/autopilot/check-done-proof.mjs",
+        "tests/coordination/backlog-done-proof.test.mjs",
+        ".github/workflows/ci.yml"
       ]
     }
   ]
@@ -266,3 +284,12 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - BACKLOG: LF-001a pasa a `done` solamente por PR #4 verificado (head `79761f337fa9bef1bdc64e4e6e0ab985d0f686b7`, merge `44e1a2309736d84b9befa3054abf8851819dde02`). LF-002a pasa a `blocked` para no quedar elegible automáticamente. Otras tareas futuras siguen bloqueadas.
 - `execution_enabled=false`, decisiones D-001 y límite de paralelismo sin cambios; ninguna tarea nueva autorizada. Alcance y criterios `docs/specs/LF-013.md`.
 - Pruebas CI y revisión independiente pendientes; merge requiere autorización del propietario.
+
+## LF-013 — cierre verificado
+- PR #9 fusionado en `main` el 2026-11-03: head `dc95925161f8cb705840904fd1da0c7eb9f74f9a`, merge `c160de9c9424918381d3bb67d64f729a0907e8db`. Dos checks obligatorios aprobados antes del merge; evidencia verificable por CI.
+- LF-001a figura `done` en BACKLOG, mientras LF-002a/002/003 siguen bloqueadas y `execution_enabled=false`.
+
+## LF-014 — prueba de merge para estados done (B6)
+- Responsable ChatGPT, revisor propuesto Claude Code. Rama `security/lf-014-autopilot-done-proof`, base `c160de9c9424918381d3bb67d64f729a0907e8db`.
+- Alcance y pruebas en `docs/specs/LF-014.md`; registro de reserva activo. Gate read-only de Git; ningún agente, facturación ni despliegue autorizado.
+- CI del PR, verificación independiente y autorización de merge pendientes.
