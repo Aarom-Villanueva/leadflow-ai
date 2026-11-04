@@ -28,3 +28,9 @@ test('rejects self-review',()=>{const b=base();b.tasks[1].reviewer='Codex';asser
 test('rejects invalid schema and concurrency',()=>{const b=base();b.max_parallel=99;assert.throws(()=>planAutopilot(b),/Invalid backlog/)});
 test('read-only output even if configured true',()=>{const b=base();b.execution_enabled=true;assert.equal(planAutopilot(b).mode,'configured-not-dispatched')});
 test('limit parallel to one',()=>{const b=base();b.max_parallel=1;assert.equal(planAutopilot(b).selected.length,1)});
+test('explicitly blocked tasks remain visible in the preview',()=>{
+  const b=base();b.tasks[2].status='blocked';
+  const p=planAutopilot(b);
+  assert.ok(p.blocked.some(x=>x.id==='LF-003' && x.manually_blocked===true));
+  assert.ok(!p.selected.some(x=>x.id==='LF-003'));
+});
