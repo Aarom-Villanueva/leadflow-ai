@@ -1,0 +1,51 @@
+{
+  "backlog": {
+    "schema_version": 1,
+    "execution_enabled": false,
+    "tasks": [
+      {
+        "id": "LF-002a",
+        "owner": "Codex",
+        "reviewer": "Claude",
+        "status": "queued",
+        "spec": "docs/specs/LF-002a.md",
+        "depends_on": [],
+        "required_decisions": [
+          "D-001"
+        ]
+      }
+    ]
+  },
+  "specText": "# LF-002a\nSynthetic fixture: no permission to run agents.\n",
+  "contract": {
+    "schema_version": 2,
+    "execution_enabled": false,
+    "task_id": "LF-002a",
+    "implementer": "Codex",
+    "reviewer": "Claude",
+    "spec_path": "docs/specs/LF-002a.md",
+    "contract_sha": "0000000000000000000000000000000000000000000000000000000000000000",
+    "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "files": [
+      "docs/specs/LF-002a.md"
+    ],
+    "estimated_cost_cents": 0,
+    "approval_id": null,
+    "attempt": 0,
+    "max_attempts": 1
+  },
+  "policy": {
+    "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reservedFiles": [
+      "docs/specs/LF-002a.md"
+    ],
+    "otherReservations": [],
+    "approvedDecisions": [
+      "D-001"
+    ],
+    "approval_id": null,
+    "hard_limit_cents": null,
+    "max_parallel": 2
+  },
+  "existingLeases": []
+}
