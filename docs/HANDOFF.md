@@ -197,7 +197,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-014",
       "owner": "ChatGPT",
       "branch": "security/lf-014-autopilot-done-proof",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -205,6 +205,23 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "scripts/autopilot/check-done-proof.mjs",
         "tests/coordination/backlog-done-proof.test.mjs",
         ".github/workflows/ci.yml"
+      ],
+      "completion": {
+        "head_sha": "fa6d3b1005a7eaab0be6bd670754aae95de36f55",
+        "merge_sha": "ea23fb8cec82b377d3b76035d66d75e867473398"
+      }
+    },
+    {
+      "id": "LF-015",
+      "owner": "ChatGPT",
+      "branch": "simulation/lf-015-fake-agent-adapter",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-015.md",
+        "scripts/autopilot/fake-agent.mjs",
+        "tests/coordination/fake-agent.test.mjs"
       ]
     }
   ]
@@ -293,3 +310,12 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable ChatGPT, revisor propuesto Claude Code. Rama `security/lf-014-autopilot-done-proof`, base `c160de9c9424918381d3bb67d64f729a0907e8db`.
 - Alcance y pruebas en `docs/specs/LF-014.md`; registro de reserva activo. Gate read-only de Git; ningún agente, facturación ni despliegue autorizado.
 - CI del PR, verificación independiente y autorización de merge pendientes.
+
+## LF-014 — cierre verificable
+- PR #10 integrado en `main` el 2026-11-03. Head `fa6d3b1005a7eaab0be6bd670754aae95de36f55`, merge `ea23fb8cec82b377d3b76035d66d75e867473398`. GitHub confirmó ambos checks obligatorios antes de integrar; mecanismo `check-done-proof.mjs` incorporado en Coordination gate.
+- Reserva LF-014 `completed` solo con evidencia de merge verificable contra base Git, no por edición unilateral.
+
+## LF-015 — adaptador falso de agentes (sin proveedores)
+- Responsable ChatGPT; revisor propuesto Claude Code. Rama `simulation/lf-015-fake-agent-adapter`, base `ea23fb8cec82b377d3b76035d66d75e867473398`.
+- Alcance en `docs/specs/LF-015.md`, script y suite de prueba de simulación. Conserva `execution_enabled=false` y todas las tareas operativas bloqueadas; sin credenciales, agentes, gastos ni despliegues.
+- CI, revisión independiente y autorización de merge pendientes.
