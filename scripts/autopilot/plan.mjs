@@ -34,11 +34,14 @@ export function planAutopilot(input) {
   const eligible = [];
   const blocked = [];
   for (const t of tasks.values()) {
-    if (t.status !== 'queued') continue;
+    if (t.status !== 'queued' && t.status !== 'blocked') continue;
     const missing = t.depends_on.filter(id => tasks.get(id).status !== 'done');
     const decisions = t.required_decisions.filter(x => !approvals.has(x));
-    if (missing.length || decisions.length) blocked.push({id: t.id, dependencies: missing, decisions});
-    else eligible.push({id: t.id, owner: t.owner, reviewer: t.reviewer, spec: t.spec});
+    if (t.status === 'blocked' || missing.length || decisions.length) {
+      blocked.push({id: t.id, dependencies: missing, decisions, manually_blocked: t.status === 'blocked'});
+    } else {
+      eligible.push({id: t.id, owner: t.owner, reviewer: t.reviewer, spec: t.spec});
+    }
   }
   const selected = [];
   const owners = new Set();
