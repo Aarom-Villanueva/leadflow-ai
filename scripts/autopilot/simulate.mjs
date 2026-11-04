@@ -90,7 +90,7 @@ export function simulateAdmission(input) {
   if (!Number.isInteger(contract.attempt) || !Number.isInteger(contract.max_attempts) || contract.max_attempts < 1 ||
       contract.max_attempts > 2 || contract.attempt !== 0) reasons.push('invalid_attempt');
   if (!Array.isArray(existingLeases) || existingLeases.some(l => !l || typeof l.task_id !== 'string' || !ACTORS.has(l.implementer))) reasons.push('invalid_lease_state');
-  if (existingLeases.some(l => l.task_id === contract.task_id || l.implementer === contract.implementer)) reasons.push('duplicate_or_busy_lease');
+  if (existingLeases.some(l => l && (l.task_id === contract.task_id || l.implementer === contract.implementer))) reasons.push('duplicate_or_busy_lease');
   if (Number.isInteger(policy.max_parallel) && existingLeases.length >= policy.max_parallel) reasons.push('parallel_limit');
 
   if (reasons.length) return deny(reasons);
