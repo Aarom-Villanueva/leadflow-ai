@@ -28,6 +28,7 @@ function validPath(path) {
 }
 
 function covers(pattern, file) {
+  if (typeof pattern !== 'string' || !validPath(file)) return false;
   if (pattern.endsWith('/**')) {
     const prefix = pattern.slice(0, -3);
     return validPath(prefix) && file.startsWith(prefix + '/');
@@ -35,11 +36,9 @@ function covers(pattern, file) {
   return validPath(pattern) && pattern === file;
 }
 
-function overlapping(a, b) {
-  if (a === b) return true;
-  if (a.endsWith('/**')) return b.startsWith(a.slice(0, -2));
-  if (b.endsWith('/**')) return a.startsWith(b.slice(0, -2));
-  return false;
+function validReservation(pattern) {
+  return validPath(pattern) || (typeof pattern === 'string' && pattern.endsWith('/**') &&
+    validPath(pattern.slice(0, -3)));
 }
 
 function deny(reasons) {
@@ -64,21 +63,23 @@ export function simulateAdmission(input) {
   if (!SHA.test(contract.base_sha ?? '') || !SHA.test(policy.base_sha ?? '') || contract.base_sha !== policy.base_sha) reasons.push('stale_base_sha');
   if (!/^[a-f0-9]{64}$/.test(contract.contract_sha ?? '') || typeof specText !== 'string' || contract.contract_sha !== digest(specText ?? '')) reasons.push('contract_hash_mismatch');
   if (!uniqueStrings(contract.files, /^(?!.*\.\.)[a-zA-Z0-9._/-]+$/) || !contract.files?.every(validPath) || contract.files?.length === 0) reasons.push('invalid_files');
-  if (!Array.isArray(policy.reservedFiles) || policy.reservedFiles.length === 0 || !policy.reservedFiles.every(x => validPath(x) || (x.endsWith('/**') && validPath(x.slice(0, -3))))) reasons.push('invalid_reservation');
+  if (!Array.isArray(policy.reservedFiles) || policy.reservedFiles.length === 0 || !policy.reservedFiles.every(validReservation)) reasons.push('invalid_reservation');
   if (Array.isArray(contract.files) && Array.isArray(policy.reservedFiles) &&
       contract.files.some(file => !policy.reservedFiles.some(pattern => covers(pattern, file)))) reasons.push('out_of_scope');
-  if (!Array.isArray(policy.otherReservations) || policy.otherReservations.some(item => !item || !Array.isArray(item.files) || item.files.some(x => !validPath(x) && !(x.endsWith('/**') && validPath(x.slice(0, -3)))))) reasons.push('invalid_other_reservations');
+  if (!Array.isArray(policy.otherReservations) || policy.otherReservations.some(item => !item || !Array.isArray(item.files) || item.files.some(x => !validReservation(x)))) reasons.push('invalid_other_reservations');
   if (Array.isArray(contract.files) && Array.isArray(policy.otherReservations) &&
-      contract.files.some(file => policy.otherReservations.some(item => item.files?.some(p => covers(p, file) || overlapping(p, file))))) reasons.push('reservation_conflict');
+      contract.files.some(file => policy.otherReservations.some(item => Array.isArray(item?.files) && item.files.some(p => covers(p, file))))) reasons.push('reservation_conflict');
 
-  if (!Array.isArray(backlog.tasks) || new Set(backlog.tasks?.map(t => t.id)).size !== backlog.tasks?.length) reasons.push('invalid_backlog');
-  const task = backlog.tasks?.find(t => t.id === contract.task_id);
+  const tasks = Array.isArray(backlog.tasks) ? backlog.tasks : [];
+  if (!Array.isArray(backlog.tasks) || tasks.some(t => !t || typeof t.id !== 'string') ||
+      new Set(tasks.map(t => t?.id)).size !== tasks.length) reasons.push('invalid_backlog');
+  const task = tasks.find(t => t && t.id === contract.task_id);
   if (!task || task.status !== 'queued') reasons.push('task_not_queued');
   if (task && (task.owner !== contract.implementer || task.reviewer !== contract.reviewer || task.spec !== contract.spec_path)) reasons.push('task_contract_mismatch');
-  if (task && (!Array.isArray(task.depends_on) || task.depends_on.some(id => backlog.tasks.filter(t => t.id === id && t.status === 'done').length !== 1))) reasons.push('unmet_dependencies');
+  if (task && (!Array.isArray(task.depends_on) || task.depends_on.some(id => tasks.filter(t => t && t.id === id && t.status === 'done').length !== 1))) reasons.push('unmet_dependencies');
   if (task && (!Array.isArray(task.required_decisions) || !Array.isArray(policy.approvedDecisions) ||
       task.required_decisions.some(id => !policy.approvedDecisions.includes(id)))) reasons.push('unapproved_decisions');
-  if (!Array.isArray(backlog.tasks) || backlog.tasks.some(t => t.status === 'in_progress' && t.owner === contract.implementer)) reasons.push('implementer_busy');
+  if (!Array.isArray(backlog.tasks) || tasks.some(t => t && t.status === 'in_progress' && t.owner === contract.implementer)) reasons.push('implementer_busy');
 
   // All limits are scenario-only, not real payment authorization.
   if (typeof policy.approval_id !== 'string' || !policy.approval_id.startsWith('SIM-') || contract.approval_id !== policy.approval_id) reasons.push('missing_simulation_approval');
