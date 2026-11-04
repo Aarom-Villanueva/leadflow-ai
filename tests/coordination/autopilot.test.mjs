@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { planAutopilot } from '../../scripts/autopilot/plan.mjs';
 
 const base = () => ({
@@ -33,4 +34,25 @@ test('explicitly blocked tasks remain visible in the preview',()=>{
   const p=planAutopilot(b);
   assert.ok(p.blocked.some(x=>x.id==='LF-003' && x.manually_blocked===true));
   assert.ok(!p.selected.some(x=>x.id==='LF-003'));
+});
+
+test('B5: real backlog reconciles LF-001a without activating LF-002a or enabling agents',()=>{
+  const b=JSON.parse(readFileSync(new URL('../../docs/autopilot/BACKLOG.json',import.meta.url),'utf8'));
+  assert.equal(b.execution_enabled,false);
+  assert.equal(b.tasks.find(t=>t.id==='LF-001a').status,'done');
+  assert.equal(b.tasks.find(t=>t.id==='LF-002a').status,'blocked');
+  const plan=planAutopilot(b);
+  assert.equal(plan.mode,'dry-run');
+  assert.deepEqual(plan.selected,[]);
+  assert.ok(plan.blocked.some(t=>t.id==='LF-002a'&&t.manually_blocked===true));
+  assert.ok(plan.blocked.some(t=>t.id==='LF-002'&&t.manually_blocked===true));
+  assert.ok(plan.blocked.some(t=>t.id==='LF-003'&&t.manually_blocked===true));
+});
+test('B5 regression: an unapproved queued LF-002a would become selectable if its manual block is removed',()=>{
+  const b=JSON.parse(readFileSync(new URL('../../docs/autopilot/BACKLOG.json',import.meta.url),'utf8'));
+  const t=b.tasks.find(t=>t.id==='LF-002a');
+  t.status='queued';
+  const plan=planAutopilot(b);
+  assert.ok(plan.selected.some(task=>task.id==='LF-002a'), 'Guard: this test must detect accidental unblocking');
+  assert.equal(plan.execution_enabled,false);
 });
