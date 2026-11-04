@@ -13,7 +13,7 @@ function pattern(value) {
 export function readReservations(markdown, { legacy = false } = {}) {
   const marker = '## Registro automático de coordinación';
   const section = markdown.split(marker)[1];
-  if (!section && legacy) return []; // First rollout only: old main has no registry.
+  if (!section && legacy) return [];
   if (!section) throw new Error('Missing coordination registry');
   const block = section.match(/```json\s*([\s\S]*?)```/);
   if (!block) throw new Error('Missing JSON coordination registry');
@@ -25,6 +25,9 @@ export function readReservations(markdown, { legacy = false } = {}) {
       throw new Error('Invalid or duplicate coordination task');
     }
     ids.add(task.id);
+    if (task.completion) {
+      if (task.state !== 'completed' || !/^[0-9a-f]{40}$/.test(task.completion.head_sha) || !/^[0-9a-f]{40}$/.test(task.completion.merge_sha)) throw new Error('Invalid completion evidence');
+    }
     return { ...task, files: task.files.map(pattern) };
   });
 }
@@ -39,7 +42,28 @@ export function readPlannedFiles(markdown, taskId) {
   return row.split('|')[column].trim().split(',').map((entry) => pattern(entry.trim()));
 }
 
-export function checkCoordination({ files, branch, roadmap, handoff, baseHandoff }) {
+/** Only release a previously active reservation after the owning branch was actually merged into the PR base.
+ * This is a narrow, reviewable exception; simply editing state to completed cannot release a live task. */
+export function verifiedMergeReleases({ previous, current, base, git }) {
+  const result = [];
+  for (const old of previous) {
+    if (old.state !== 'active') continue;
+    const now = current.find(task => task.id === old.id);
+    if (!now || now.state !== 'completed' || now.branch !== old.branch || now.owner !== old.owner || !now.completion) continue;
+    const { head_sha, merge_sha } = now.completion;
+    try {
+      const parents = git('rev-list', '--parents', '-n', '1', merge_sha).trim().split(/\s+/);
+      if (parents[0] !== merge_sha || parents.length < 3 || !parents.slice(2).includes(head_sha)) continue;
+      // execFileSync throws on nonzero exit; this check fails closed when merge_sha is not an ancestor.
+      git('merge-base', '--is-ancestor', merge_sha, base);
+      if (!git('show', '-s', '--format=%s', merge_sha).includes(old.id)) continue;
+      result.push(old.id);
+    } catch { /* Missing proof fails closed. */ }
+  }
+  return result;
+}
+
+export function checkCoordination({ files, branch, roadmap, handoff, baseHandoff, releasedTaskIds = [] }) {
   const current = readReservations(handoff);
   const previous = readReservations(baseHandoff, { legacy: true });
   const own = current.filter((task) => task.branch === branch && task.state === 'active');
@@ -47,8 +71,9 @@ export function checkCoordination({ files, branch, roadmap, handoff, baseHandoff
   const task = own[0];
   const planned = readPlannedFiles(roadmap, task.id);
   const errors = [];
-  // An unmerged PR cannot release another task's reservation by changing HEAD.
-  const foreign = [...previous, ...current].filter((item) => item.id !== task.id && item.state === 'active');
+  const verifiedReleases = new Set(releasedTaskIds);
+  // A task can be retired only with cryptographic merge-parent evidence, never by editing HEAD alone.
+  const foreign = [...previous, ...current].filter((item) => item.id !== task.id && item.state === 'active' && !verifiedReleases.has(item.id));
   for (const file of files) {
     pattern(file);
     if (!planned.some((glob) => matchesGlob(file, glob))) errors.push(`${file}: outside ${task.id} roadmap scope`);
@@ -58,7 +83,6 @@ export function checkCoordination({ files, branch, roadmap, handoff, baseHandoff
     }
   }
   if (errors.length) throw new Error([...new Set(errors)].join('\n'));
-  // Documentation checks still run; dependency installation is skipped for docs-only PRs.
   const foundation = files.some((file) => !/^(docs\/.*|.*\.md|LICENSE)$/.test(file));
   return { taskId: task.id, count: files.length, foundation };
 }
@@ -70,8 +94,11 @@ export function main(args) {
   const git = (...argv) => execFileSync('git', argv, { encoding: 'utf8' });
   const show = (ref, file) => git('show', `${ref}:${file}`);
   const files = git('diff', '--name-only', '--no-renames', '-z', `${base}...${head}`).split('\0').filter(Boolean);
-  const result = checkCoordination({ files, branch, roadmap: show(head, 'docs/ROADMAP.md'), handoff: show(head, 'docs/HANDOFF.md'), baseHandoff: show(base, 'docs/HANDOFF.md') });
-  console.log(JSON.stringify(result));
+  const old = show(base, 'docs/HANDOFF.md');
+  const now = show(head, 'docs/HANDOFF.md');
+  const releasedTaskIds = verifiedMergeReleases({ previous: readReservations(old), current: readReservations(now), base, git });
+  const result = checkCoordination({ files, branch, roadmap: show(head, 'docs/ROADMAP.md'), handoff: now, baseHandoff: old, releasedTaskIds });
+  console.log(JSON.stringify({ ...result, verified_releases: releasedTaskIds }));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `foundation=${result.foundation}\n`);
   return result;
 }

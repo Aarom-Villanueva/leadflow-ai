@@ -56,7 +56,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-001",
       "owner": "Codex",
       "branch": "integration/lf-001-foundation",
-      "state": "active",
+      "state": "completed",
       "files": [
         "package.json",
         "package-lock.json",
@@ -80,6 +80,28 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "docs/ROADMAP.md",
         "docs/specs/LF-001.md",
         "docs/LF-001-REVIEW.md"
+      ],
+      "completion": {
+        "head_sha": "72603faa5a1eb8336f2be5f1145ea64a931ce7c9",
+        "merge_sha": "cb75bccea97867cee19a9f6204e242b1c51ba192"
+      }
+    },
+    {
+      "id": "LF-001a",
+      "owner": "ChatGPT",
+      "branch": "automation/lf-001a-autopilot",
+      "state": "active",
+      "files": [
+        "AGENTS.md",
+        "AUTOPILOT.md",
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001a.md",
+        "docs/autopilot/**",
+        ".github/workflows/autopilot-preview.yml",
+        "scripts/autopilot/**",
+        "scripts/check-coordination.mjs",
+        "tests/coordination/**"
       ]
     }
   ]
@@ -102,3 +124,13 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - GitHub: candidato 850486b publicado en PR #3. Ejecución observada: https://github.com/Aarom-Villanueva/leadflow-ai/actions/runs/41734771182 **Success**, 1m 56s; Coordination gate 10s y Foundation verification 1m 40s). La API GraphQL devuelve Forbidden; se verificó la conclusión por la página pública del run. La entrega final identifica también la ejecución del commit documental de cierre.
 - Pendientes: 16 avisos moderados derivados de minimatch en tooling dev-only; ESLint 9 sin soporte hasta que sus plugins admitan 10; navegador estándar Playwright bloqueado en este Cloud (se probó Chromium del sistema); confirmar reglas de protección de main y revisión del candidato por Claude/propietario. Detalles en LF-001-REVIEW.md.
 - Ningún merge, despliegue ni LF-002. Detenerse al terminar estas verificaciones; no iniciar otro módulo antes de configurar el orquestador.
+
+## LF-001 — cierre verificado
+- PR #3 fusionado en `main` el 2026-11-03. Head revisado `72603faa5a1eb8336f2be5f1145ea64a931ce7c9`; merge commit `cb75bccea97867cee19a9f6204e242b1c51ba192`.
+- Ambos checks obligatorios `Coordination gate` y `Foundation verification` exitosos. Ruleset de `main` activo y verificado, sin despliegues.
+- LF-001 ahora `completed`. La evidencia de merge se verifica contra la historia de Git antes de liberar la reserva en PRs posteriores.
+
+## LF-001a — preparación AUTOPILOT
+- Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `automation/lf-001a-autopilot`, base `cb75bccea97867cee19a9f6204e242b1c51ba192`.
+- Alcance definido en `docs/specs/LF-001a.md`. No hay credenciales, gastos, despliegues, ni ejecución automática.
+- Pruebas locales preliminares: 10 del planificador y 3 del control de reservas ejecutadas con Node 22; pendiente CI con Node 24 y revisión independiente.
