@@ -34,7 +34,7 @@
       "id": "LF-002",
       "owner": "Codex",
       "reviewer": "Claude",
-      "status": "queued",
+      "status": "blocked",
       "depends_on": [
         "LF-002a"
       ],
