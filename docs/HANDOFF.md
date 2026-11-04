@@ -92,6 +92,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "branch": "automation/lf-001a-autopilot",
       "state": "active",
       "files": [
+        "AGENTS.md",
         "AUTOPILOT.md",
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
