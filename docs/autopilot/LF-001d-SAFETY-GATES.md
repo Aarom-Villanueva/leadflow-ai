@@ -8,7 +8,7 @@
 
 El adaptador de LF-015 rechazaba credenciales/proveedores solo en las claves de primer nivel. LF-016 propone inspeccionar recursivamente todos los campos del fixture **antes de simular admisión**:
 
-- Rechazo explícito de claves operativas (credenciales, tokens, `api_key`, `provider`, `dispatch`, `workflow`, secretos y autorización), también dentro de `scenario`, `review`, `evidence`, arrays y objetos a mayor profundidad. El rechazo se realiza por nombre de campo, sin imprimir ni registrar su valor.
+- Rechazo de **todos los campos no permitidos por una lista blanca estructural** de cada objeto (`scenario`, `backlog`, `contract`, `policy`, `review`, `evidence`, tareas, reservas y leases), incluso si la clave operativa anidada tiene un nombre nunca visto (por ejemplo `client_secret` o `refresh_token`). No depende de la coincidencia contra palabras sospechosas, ni imprime o registra el valor de los campos.
 - Solo se permiten valores JSON normales, objetos de prototipo ordinario o nulo y arrays. Se rechazan getters/accesores, símbolos, funciones, referencias cíclicas/compartidas, profundidad excesiva y estructuras desproporcionadas; falla cerrado.
 - Se mantienen las validaciones originales de alcance, identidad sintética del revisor, SHA sintético y replays.
 - Las funciones continúan siendo puras respecto a red, procesos, GitHub, persistencia y escritura. El CLI únicamente puede leer un fixture local pasado explícitamente y mostrar un resultado sintético.
@@ -36,3 +36,7 @@ Antes de agregar un adapter capaz de despachar un agente deberán existir, en un
 ## Consideración de seguridad específica
 
 Aunque esta validación más estricta reduce accidentes en fixtures sintéticos, **no constituye un sandbox de procesos ni una política de seguridad para agentes reales**. Una futura implementación con conexión no debe reutilizar esta verificación como único control de credenciales, autenticación o autorización.
+
+## Auditoría M2: decisión de diseño
+
+La primera versión de LF-016 utilizó una lista cerrada de palabras clave y la auditoría independiente de Claude demostró nueve formas de introducir credenciales plausibles sin rechazo. Se reemplazó ese enfoque por una **lista blanca de campos por estructura**: los campos nuevos son rechazados por defecto y deben pasar revisión de contrato y pruebas antes de incorporarse. Se mantiene la prohibición de reutilizar esta lógica como única frontera de seguridad de un ejecutor real.
