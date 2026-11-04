@@ -172,3 +172,65 @@ test('B8 does not break the valid synthetic fixture or deterministic replay',()=
   assert.equal(a.execution_enabled,false);
   assert.equal(replayFakeAgent(sample(),[a.idempotency_key]).reason,'duplicate_replay');
 });
+
+test('M2: rejects nine plausible credential names absent from previous denylist',()=>{
+  const names=[
+    'client_secret','refresh_token','bearer_token','private_key','pat',
+    'oauth_token','session_token','ssh_key','github_token'
+  ];
+  for(const key of names){
+    for(const location of [
+      s=>s.scenario.policy,
+      s=>s.scenario.contract,
+      s=>s.review,
+      s=>s.evidence,
+      s=>s.scenario.backlog.tasks[0],
+      s=>s.scenario.policy.otherReservations[0]
+    ]) {
+      const s=sample();
+      s.scenario.policy.otherReservations=[{task_id:'LF-999',files:[]}];
+      location(s)[key]='opaque-value';
+      denied(s,'unsupported_operational_input');
+    }
+  }
+});
+test('M2: allowlist rejects completely unknown keys in every recognized object',()=>{
+  for(const location of [
+    s=>s,
+    s=>s.scenario,
+    s=>s.scenario.backlog,
+    s=>s.scenario.backlog.tasks[1],
+    s=>s.scenario.contract,
+    s=>s.scenario.policy,
+    s=>s.scenario.policy.otherReservations[0],
+    s=>s.scenario.existingLeases[0],
+    s=>s.review,
+    s=>s.evidence
+  ]){
+    const s=sample();
+    s.scenario.policy.otherReservations=[{task_id:'LF-999',files:[]}];
+    s.scenario.existingLeases=[{task_id:'LF-998',implementer:'Claude'}];
+    location(s).unrecognized_field='unused';
+    denied(s,'unsupported_operational_input');
+  }
+});
+test('M2: array member props and sparse array entries are denied',()=>{
+  const withExtra=sample();
+  withExtra.scenario.contract.files.unexpected='value';
+  denied(withExtra,'unsupported_operational_input');
+  const sparse=sample();
+  sparse.scenario.backlog.tasks.length=3;
+  denied(sparse,'unsupported_operational_input');
+  const changedFiles=sample();
+  changedFiles.evidence.changed_files['client_secret']='unused';
+  denied(changedFiles,'unsupported_operational_input');
+});
+test('M2: known schema fields preserve legacy admission outcomes',()=>{
+  const s=sample();
+  assert.equal(runFakeAgent(s).result,'fake_ready_for_owner');
+  const t=sample();t.scenario.backlog.tasks[1].status='blocked';
+  assert.equal(runFakeAgent(t).reason,'admission_denied');
+  const u=sample();u.review.agent='Codex';
+  assert.equal(runFakeAgent(u).reason,'independent_fake_review_required');
+  assert.equal(replayFakeAgent(sample(),[runFakeAgent(sample()).idempotency_key]).reason,'duplicate_replay');
+});
