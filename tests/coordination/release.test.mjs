@@ -18,8 +18,8 @@ test('merge proof releases only actually merged task',()=>{
  try {
    git('init','-q');git('config','user.email','test@example.invalid');git('config','user.name','Tester');
    writeFileSync(join(dir,'f'),'base');git('add','.');git('commit','-qm','base');
-   git('checkout','-qb','integration/lf-001-foundation');writeFileSync(join(dir,'f'),'lf001');git('commit','-qam','LF-001 commit');const head=git('rev-parse','HEAD').trim();
-   git('checkout','-q','master');git('merge','--no-ff','-m','Merge PR #3: complete LF-001',head);const merge=git('rev-parse','HEAD').trim();
+   const trunk=git('branch','--show-current').trim();git('checkout','-qb','integration/lf-001-foundation');writeFileSync(join(dir,'f'),'lf001');git('commit','-qam','LF-001 commit');const head=git('rev-parse','HEAD').trim();
+   git('checkout','-q',trunk);git('merge','--no-ff','-m','Merge PR #3: complete LF-001',head);const merge=git('rev-parse','HEAD').trim();
    const previous=[task('active')];const current=[task('completed',{head_sha:head,merge_sha:merge})];
    assert.deepEqual(verifiedMergeReleases({previous,current,base:merge,git}),['LF-001']);
    assert.deepEqual(verifiedMergeReleases({previous,current:[task('completed',{head_sha:SHA,merge_sha:merge})],base:merge,git}),[]);
