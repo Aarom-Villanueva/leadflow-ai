@@ -54,7 +54,8 @@ export function verifiedMergeReleases({ previous, current, base, git }) {
     try {
       const parents = git('rev-list', '--parents', '-n', '1', merge_sha).trim().split(/\s+/);
       if (parents[0] !== merge_sha || parents.length < 3 || !parents.slice(2).includes(head_sha)) continue;
-      if (git('merge-base', '--is-ancestor', merge_sha, base) !== '') continue;
+      // execFileSync throws on nonzero exit; this check fails closed when merge_sha is not an ancestor.
+      git('merge-base', '--is-ancestor', merge_sha, base);
       if (!git('show', '-s', '--format=%s', merge_sha).includes(old.id)) continue;
       result.push(old.id);
     } catch { /* Missing proof fails closed. */ }
