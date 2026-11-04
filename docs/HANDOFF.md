@@ -128,7 +128,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-001c",
       "owner": "ChatGPT",
       "branch": "automation/lf-001c-admission-simulator",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -137,6 +137,23 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "scripts/autopilot/simulate.mjs",
         "tests/coordination/simulator.test.mjs",
         ".github/workflows/autopilot-admission-simulation.yml"
+      ],
+      "completion": {
+        "head_sha": "e83c659e1d7df5d0be6f1d765fd11390a8d70a15",
+        "merge_sha": "3c88393995e4a62700fba0eefe24d6b059a104c6"
+      }
+    },
+    {
+      "id": "LF-011",
+      "owner": "ChatGPT",
+      "branch": "test/lf-011-autopilot-hardening",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-011.md",
+        "scripts/autopilot/simulate.mjs",
+        "tests/coordination/simulator-hardening.test.mjs"
       ]
     }
   ]
@@ -188,3 +205,11 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `automation/lf-001c-admission-simulator`; base `3d8a4bf0931aca31fffc8105bd753a8bd78783d1`.
 - Alcance: `docs/specs/LF-001c.md`, script determinista y pruebas sin red, escenario denegado y workflow manual solo lectura. Reserva activa en el registro anterior.
 - Las suites de GitHub Actions, revisión independiente y autorización de merge quedan pendientes. `execution_enabled=false` permanece sin cambios; no hay ningún despachador ni credenciales.
+
+## LF-001c — cierre verificado
+- PR #6 fusionado a `main` el 2026-11-03: head `e83c659e1d7df5d0be6f1d765fd11390a8d70a15`, merge commit `3c88393995e4a62700fba0eefe24d6b059a104c6`.
+- Ambos checks obligatorios confirmados exitosos en el head previo al merge. Sin despliegue, secretos ni ejecución de agentes. Su reserva se cierra solamente con prueba Git.
+
+## LF-011 — endurecimiento de simulador pre-LF-001d
+- Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `test/lf-011-autopilot-hardening`, base merge PR #6 `3c88393995e4a62700fba0eefe24d6b059a104c6`.
+- Alcance en `docs/specs/LF-011.md` y reservas exactas en registro. Revisión y CI remotos pendientes; ningún nuevo despacho ni autorización de gasto.
