@@ -16,6 +16,44 @@ function validFile(file) {
   return typeof file === 'string' && PATH.test(file) && !file.split('/').some(p => p === '.' || p === '..');
 }
 
+const FORBIDDEN_OPERATIONAL_KEYS = new Set([
+  'credentials', 'credential', 'token', 'api_key', 'apikey', 'dispatch',
+  'provider', 'workflow', 'secret', 'authorization', 'access_token', 'api_token'
+]);
+
+/**
+ * Accept JSON-shaped synthetic fixtures only. Inspect every own key, including
+ * non-enumerable keys, before reading any scenario data. Do not invoke getters.
+ * Fail closed for recursive references, unusual prototypes, or oversized input.
+ */
+function inspectSyntheticFixture(root) {
+  const seen = new WeakSet();
+  let nodes = 0;
+  function visit(value, depth) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return null;
+    if (!value || typeof value !== 'object' || depth > 24 || ++nodes > 10000 || seen.has(value)) {
+      return 'invalid_fixture_structure';
+    }
+    seen.add(value);
+    const proto = Object.getPrototypeOf(value);
+    if (Array.isArray(value) ? proto !== Array.prototype :
+      proto !== Object.prototype && proto !== null) return 'invalid_fixture_structure';
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string') return 'invalid_fixture_structure';
+      const normalized = key.toLowerCase().replace(/[-\s]/g, '_');
+      if (FORBIDDEN_OPERATIONAL_KEYS.has(normalized)) return 'unsupported_operational_input';
+      const field = Object.getOwnPropertyDescriptor(value, key);
+      if (!field || !Object.hasOwn(field, 'value')) return 'invalid_fixture_structure';
+      const reason = visit(field.value, depth + 1);
+      if (reason) return reason;
+    }
+    return null;
+  }
+  try { return visit(root, 0); }
+  catch { return 'invalid_fixture_structure'; }
+}
+
 /**
  * Inert adapter that returns preprogrammed, synthetic reports.
  * It has no network, shell, filesystem writes, tokens, GitHub access, or provider SDKs.
@@ -23,17 +61,14 @@ function validFile(file) {
  */
 export function runFakeAgent(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return invalid('invalid_input');
+  const fixtureProblem = inspectSyntheticFixture(input);
+  if (fixtureProblem) return invalid(fixtureProblem);
   const { scenario, review, evidence } = input;
   if (!scenario || !review || !evidence) return invalid('missing_inputs');
   if (scenario.backlog?.execution_enabled !== false || scenario.contract?.execution_enabled !== false) {
     return invalid('execution_must_remain_disabled');
   }
-  // A real payment permission, GitHub identity or token is never accepted as part of a fake run.
-  if (Object.hasOwn(input, 'credentials') || Object.hasOwn(input, 'token') ||
-      Object.hasOwn(input, 'api_key') || Object.hasOwn(input, 'dispatch') ||
-      Object.hasOwn(input, 'provider') || Object.hasOwn(input, 'workflow')) {
-    return invalid('unsupported_operational_input');
-  }
+  // Operational input is rejected recursively before any admission decision.
   let candidate;
   try { candidate = simulateAdmission(scenario); }
   catch { return invalid('malformed_admission_scenario'); }
