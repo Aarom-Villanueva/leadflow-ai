@@ -147,13 +147,29 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-011",
       "owner": "ChatGPT",
       "branch": "test/lf-011-autopilot-hardening",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-011.md",
         "scripts/autopilot/simulate.mjs",
         "tests/coordination/simulator-hardening.test.mjs"
+      ],
+      "completion": {
+        "head_sha": "b59e3777b6bb7822ba7a6d23951d01cd054ad4ee",
+        "merge_sha": "047e6d27396564ebdd57d68d859fe30b81de62ea"
+      }
+    },
+    {
+      "id": "LF-012",
+      "owner": "ChatGPT",
+      "branch": "planning/lf-012-autopilot-activation-readiness",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-012.md",
+        "docs/autopilot/ACTIVATION-READINESS.md"
       ]
     }
   ]
@@ -213,3 +229,13 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 ## LF-011 — endurecimiento de simulador pre-LF-001d
 - Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `test/lf-011-autopilot-hardening`, base merge PR #6 `3c88393995e4a62700fba0eefe24d6b059a104c6`.
 - Alcance en `docs/specs/LF-011.md` y reservas exactas en registro. Revisión y CI remotos pendientes; ningún nuevo despacho ni autorización de gasto.
+
+## LF-011 — cierre verificado
+- PR #7 fusionado en `main` el 2026-11-03; head auditado `b59e3777b6bb7822ba7a6d23951d01cd054ad4ee`, merge `047e6d27396564ebdd57d68d859fe30b81de62ea`.
+- Ambos checks obligatorios estaban aprobados para el head; 55/55 pruebas de coordinación, revisión independiente aprobada. Fallo inicial de `null` lease y corrección documentados en el PR #7; sin desplegar ni usar APIs IA.
+- LF-011 se cierra mediante evidencia Git verificable contra la base, no por una marca unilateral.
+
+## LF-012 — preparación no operativa de LF-001d
+- Responsable ChatGPT; revisor propuesto Claude Code. Rama `planning/lf-012-autopilot-activation-readiness`; base `047e6d27396564ebdd57d68d859fe30b81de62ea`.
+- Solo documentación: `docs/autopilot/ACTIVATION-READINESS.md`, `docs/specs/LF-012.md` y registro de coordinación. No se han activado servicios, cambiado `BACKLOG.json`, ejecutado agentes, desplegado ni generado gastos.
+- CI y revisión independiente pendientes; integración requiere autorización del propietario.
