@@ -164,12 +164,29 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-012",
       "owner": "ChatGPT",
       "branch": "planning/lf-012-autopilot-activation-readiness",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-012.md",
         "docs/autopilot/ACTIVATION-READINESS.md"
+      ],
+      "completion": {
+        "head_sha": "5234ea2d0a13fdd856314c72a3d81630b1af55a8",
+        "merge_sha": "d7f9243e52fe9dd13c11645e613a32d4e6dd2e93"
+      }
+    },
+    {
+      "id": "LF-013",
+      "owner": "ChatGPT",
+      "branch": "fix/lf-013-autopilot-backlog-reconciliation",
+      "state": "active",
+      "files": [
+        "docs/autopilot/BACKLOG.json",
+        "tests/coordination/autopilot.test.mjs",
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-013.md"
       ]
     }
   ]
@@ -239,3 +256,13 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable ChatGPT; revisor propuesto Claude Code. Rama `planning/lf-012-autopilot-activation-readiness`; base `047e6d27396564ebdd57d68d859fe30b81de62ea`.
 - Solo documentación: `docs/autopilot/ACTIVATION-READINESS.md`, `docs/specs/LF-012.md` y registro de coordinación. No se han activado servicios, cambiado `BACKLOG.json`, ejecutado agentes, desplegado ni generado gastos.
 - CI y revisión independiente pendientes; integración requiere autorización del propietario.
+
+## LF-012 — cierre verificado
+- PR #8 fusionado en `main` el 2026-11-03: head `5234ea2d0a13fdd856314c72a3d81630b1af55a8`, merge `d7f9243e52fe9dd13c11645e613a32d4e6dd2e93`.
+- `Coordination gate` aprobado y `Foundation verification` omitido correctamente por ser solo docs. La reserva pasa a `completed` con prueba Git verificable por CI.
+
+## LF-013 — reconciliación B5 sin ejecución
+- Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `fix/lf-013-autopilot-backlog-reconciliation`, base merge PR #8 `d7f9243e52fe9dd13c11645e613a32d4e6dd2e93`.
+- BACKLOG: LF-001a pasa a `done` solamente por PR #4 verificado (head `79761f337fa9bef1bdc64e4e6e0ab985d0f686b7`, merge `44e1a2309736d84b9befa3054abf8851819dde02`). LF-002a pasa a `blocked` para no quedar elegible automáticamente. Otras tareas futuras siguen bloqueadas.
+- `execution_enabled=false`, decisiones D-001 y límite de paralelismo sin cambios; ninguna tarea nueva autorizada. Alcance y criterios `docs/specs/LF-013.md`.
+- Pruebas CI y revisión independiente pendientes; merge requiere autorización del propietario.
