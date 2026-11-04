@@ -90,7 +90,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-001a",
       "owner": "ChatGPT",
       "branch": "automation/lf-001a-autopilot",
-      "state": "active",
+      "state": "completed",
       "files": [
         "AGENTS.md",
         "AUTOPILOT.md",
@@ -102,6 +102,22 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "scripts/autopilot/**",
         "scripts/check-coordination.mjs",
         "tests/coordination/**"
+      ],
+      "completion": {
+        "head_sha": "79761f337fa9bef1bdc64e4e6e0ab985d0f686b7",
+        "merge_sha": "44e1a2309736d84b9befa3054abf8851819dde02"
+      }
+    },
+    {
+      "id": "LF-001b",
+      "owner": "ChatGPT",
+      "branch": "design/lf-001b-autopilot-dispatch",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001b.md",
+        "docs/autopilot/PHASE-2-DESIGN.md"
       ]
     }
   ]
@@ -134,3 +150,12 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `automation/lf-001a-autopilot`, base `cb75bccea97867cee19a9f6204e242b1c51ba192`.
 - Alcance definido en `docs/specs/LF-001a.md`. No hay credenciales, gastos, despliegues, ni ejecución automática.
 - Pruebas locales preliminares: 10 del planificador y 3 del control de reservas ejecutadas con Node 22; pendiente CI con Node 24 y revisión independiente.
+
+## LF-001a — cierre verificado
+- PR #4 fusionado en `main` el 2026-11-03; head `79761f337fa9bef1bdc64e4e6e0ab985d0f686b7`, merge `44e1a2309736d84b9befa3054abf8851819dde02`.
+- Ambos controles obligatorios de CI completados exitosamente; se conservaron las protecciones de `main`. LF-001a deja reserva `completed` con evidencia contrastable en Git.
+
+## LF-001b — diseño de AUTOPILOT fase 2
+- Responsable ChatGPT, revisor propuesto Claude Code. Rama `design/lf-001b-autopilot-dispatch`, base merge PR #4 `44e1a2309736d84b9befa3054abf8851819dde02`.
+- Alcance exclusivamente documental en `docs/specs/LF-001b.md`; diseño detallado en `docs/autopilot/PHASE-2-DESIGN.md`.
+- No se han activado agentes, API keys, secrets, nuevas acciones de ejecución, gastos, despliegues ni auto-merge. Requiere revisión y autorización antes de integración.
