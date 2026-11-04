@@ -112,12 +112,31 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-001b",
       "owner": "ChatGPT",
       "branch": "design/lf-001b-autopilot-dispatch",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-001b.md",
         "docs/autopilot/PHASE-2-DESIGN.md"
+      ],
+      "completion": {
+        "head_sha": "df71648844009867bd32463b96ce7059ecaf63eb",
+        "merge_sha": "3d8a4bf0931aca31fffc8105bd753a8bd78783d1"
+      }
+    },
+    {
+      "id": "LF-001c",
+      "owner": "ChatGPT",
+      "branch": "automation/lf-001c-admission-simulator",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001c.md",
+        "docs/autopilot/fixtures/**",
+        "scripts/autopilot/simulate.mjs",
+        "tests/coordination/simulator.test.mjs",
+        ".github/workflows/autopilot-admission-simulation.yml"
       ]
     }
   ]
@@ -159,3 +178,13 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable ChatGPT, revisor propuesto Claude Code. Rama `design/lf-001b-autopilot-dispatch`, base merge PR #4 `44e1a2309736d84b9befa3054abf8851819dde02`.
 - Alcance exclusivamente documental en `docs/specs/LF-001b.md`; diseño detallado en `docs/autopilot/PHASE-2-DESIGN.md`.
 - No se han activado agentes, API keys, secrets, nuevas acciones de ejecución, gastos, despliegues ni auto-merge. Requiere revisión y autorización antes de integración.
+
+## LF-001b — cierre verificado
+- PR #5 fusionado en `main` el 2026-11-03; head `df71648844009867bd32463b96ce7059ecaf63eb`, merge `3d8a4bf0931aca31fffc8105bd753a8bd78783d1`.
+- `Coordination gate` satisfactorio; `Foundation verification` fue omitido correctamente por ser documentación. La regla de protección de main siguió activa; no hubo gastos o ejecuciones de agentes.
+- La reserva LF-001b pasa a `completed` con evidencia de padres del merge contrastable por CI.
+
+## LF-001c — simulador offline de admisión
+- Responsable: ChatGPT; revisor propuesto: Claude Code. Rama `automation/lf-001c-admission-simulator`; base `3d8a4bf0931aca31fffc8105bd753a8bd78783d1`.
+- Alcance: `docs/specs/LF-001c.md`, script determinista y pruebas sin red, escenario denegado y workflow manual solo lectura. Reserva activa en el registro anterior.
+- Las suites de GitHub Actions, revisión independiente y autorización de merge quedan pendientes. `execution_enabled=false` permanece sin cambios; no hay ningún despachador ni credenciales.
