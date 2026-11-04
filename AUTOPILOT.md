@@ -19,6 +19,12 @@ Reducir prompts repetidos sin saltarse SDD → ODD → RDD. La jerarquía es `do
 
 En la fase 1: `execution_enabled=false`, sin credenciales ni disparadores programados. `node scripts/autopilot/plan.mjs` solo imprime una propuesta, **no abre issues ni PR, no lanza agentes y no cobra nada**. `AUTOPILOT Preview` será ejecutable manualmente desde GitHub Actions *solo después* de que su workflow sea integrado a la rama predeterminada. Nunca se confía en la ejecución de un PR no revisado.
 
+## Distinción de dependencias y especificaciones pendientes
+
+`docs/ROADMAP.md` describe dependencias de **arquitectura/producto**; `BACKLOG.json` puede añadir dependencias de **orquestación**, como completar y revisar LF-001a antes de ofrecer nuevas tareas. Una dependencia de orquestación no sustituye ni aprueba una decisión de producto.
+
+Las rutas `docs/specs/LF-002.md` y `docs/specs/LF-003.md` aún no existen: ambas tareas permanecen expresamente `blocked` en el backlog y **no pueden ejecutarse** hasta que existan especificaciones revisadas, se registren reservas exclusivas y se cumplan las decisiones aplicables. El planificador presenta también los bloqueos explícitos, no únicamente los derivados de dependencias. El planificador no valida todavía la existencia de cada ruta de especificación: el futuro dispatcher deberá hacerlo y rechazar tareas sin contrato válido antes de ejecutar cualquier agente.
+
 ## Fase 2 — activación (NO autorizada ahora)
 
 Antes de implementar un dispatcher que llame a APIs o acciones externas: (1) elegir autenticación oficial y revisar costos independientes de suscripciones, (2) definir límite de gasto mensual, concurrencia, turnos y tiempo por tarea, (3) aprobar scope de GitHub App/Actions y guardado seguro de secretos, (4) separar ejecución y revisión en permisos mínimos, (5) documentar comandos de PAUSA y recuperación ante fallos, (6) implementar controles anti-loop, idempotencia, firma de tareas y seguimiento de resultados, (7) probar en dry-run y con una tarea de bajo riesgo. Sin estas condiciones el dispatcher debe seguir deshabilitado.
