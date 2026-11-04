@@ -34,7 +34,9 @@ export function runFakeAgent(input) {
       Object.hasOwn(input, 'provider') || Object.hasOwn(input, 'workflow')) {
     return invalid('unsupported_operational_input');
   }
-  const candidate = simulateAdmission(scenario);
+  let candidate;
+  try { candidate = simulateAdmission(scenario); }
+  catch { return invalid('malformed_admission_scenario'); }
   if (candidate.result !== 'would_admit' || candidate.mode !== 'simulation-only' ||
       candidate.lease?.simulated !== true) {
     return { ...invalid('admission_denied'), admission_reasons: candidate.reasons || [] };
