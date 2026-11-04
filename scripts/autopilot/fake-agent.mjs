@@ -16,10 +16,55 @@ function validFile(file) {
   return typeof file === 'string' && PATH.test(file) && !file.split('/').some(p => p === '.' || p === '..');
 }
 
-const FORBIDDEN_OPERATIONAL_KEYS = new Set([
-  'credentials', 'credential', 'token', 'api_key', 'apikey', 'dispatch',
-  'provider', 'workflow', 'secret', 'authorization', 'access_token', 'api_token'
-]);
+// Only the exact fields consumed by this fake adapter and its offline admission
+// simulator are accepted. Unknown fields are rejected regardless of their name.
+const FIELDS = Object.freeze({
+  input: { scenario: 'scenario', review: 'review', evidence: 'evidence' },
+  scenario: { backlog: 'backlog', contract: 'contract', policy: 'policy',
+    specText: 'scalar', existingLeases: 'leases' },
+  backlog: { schema_version: 'scalar', execution_enabled: 'scalar', tasks: 'tasks' },
+  task: { id: 'scalar', owner: 'scalar', reviewer: 'scalar', status: 'scalar',
+    spec: 'scalar', depends_on: 'strings', required_decisions: 'strings' },
+  contract: { schema_version: 'scalar', execution_enabled: 'scalar', task_id: 'scalar',
+    implementer: 'scalar', reviewer: 'scalar', spec_path: 'scalar',
+    contract_sha: 'scalar', base_sha: 'scalar', files: 'strings',
+    estimated_cost_cents: 'scalar', approval_id: 'scalar',
+    attempt: 'scalar', max_attempts: 'scalar' },
+  policy: { base_sha: 'scalar', reservedFiles: 'strings',
+    otherReservations: 'reservations', approvedDecisions: 'strings',
+    approval_id: 'scalar', hard_limit_cents: 'scalar', max_parallel: 'scalar' },
+  reservation: { task_id: 'scalar', files: 'strings' },
+  lease: { task_id: 'scalar', implementer: 'scalar' },
+  review: { agent: 'scalar', task_id: 'scalar', approved: 'scalar',
+    simulated: 'scalar', synthetic_head_sha: 'scalar' },
+  evidence: { simulated: 'scalar', task_id: 'scalar',
+    synthetic_head_sha: 'scalar', changed_files: 'strings' }
+});
+const ARRAY_ITEMS = Object.freeze({
+  tasks: 'task', strings: 'scalar', reservations: 'reservation', leases: 'lease'
+});
+
+/** A strict, path-aware allowlist; no guessed credential keywords. */
+function isAllowedFixtureShape(value, shape) {
+  if (shape === 'scalar') {
+    return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+  }
+  if (Object.hasOwn(ARRAY_ITEMS, shape)) {
+    if (!Array.isArray(value) || value.length > 10000 ||
+        Reflect.ownKeys(value).length !== value.length + 1) return false;
+    for (let i = 0; i < value.length; i++) {
+      if (!Object.hasOwn(value, i) ||
+          !isAllowedFixtureShape(value[i], ARRAY_ITEMS[shape])) return false;
+    }
+    return true;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const allowed = FIELDS[shape];
+  if (!allowed) return false;
+  return Reflect.ownKeys(value).every(key =>
+    typeof key === 'string' && Object.hasOwn(allowed, key) &&
+    isAllowedFixtureShape(value[key], allowed[key]));
+}
 
 /**
  * Accept JSON-shaped synthetic fixtures only. Inspect every own key, including
@@ -41,8 +86,6 @@ function inspectSyntheticFixture(root) {
       proto !== Object.prototype && proto !== null) return 'invalid_fixture_structure';
     for (const key of Reflect.ownKeys(value)) {
       if (typeof key !== 'string') return 'invalid_fixture_structure';
-      const normalized = key.toLowerCase().replace(/[-\s]/g, '_');
-      if (FORBIDDEN_OPERATIONAL_KEYS.has(normalized)) return 'unsupported_operational_input';
       const field = Object.getOwnPropertyDescriptor(value, key);
       if (!field || !Object.hasOwn(field, 'value')) return 'invalid_fixture_structure';
       const reason = visit(field.value, depth + 1);
@@ -63,12 +106,13 @@ export function runFakeAgent(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return invalid('invalid_input');
   const fixtureProblem = inspectSyntheticFixture(input);
   if (fixtureProblem) return invalid(fixtureProblem);
+  if (!isAllowedFixtureShape(input, 'input')) return invalid('unsupported_operational_input');
   const { scenario, review, evidence } = input;
   if (!scenario || !review || !evidence) return invalid('missing_inputs');
   if (scenario.backlog?.execution_enabled !== false || scenario.contract?.execution_enabled !== false) {
     return invalid('execution_must_remain_disabled');
   }
-  // Operational input is rejected recursively before any admission decision.
+  // The strict field allowlist rejects unknown nested data before admission.
   let candidate;
   try { candidate = simulateAdmission(scenario); }
   catch { return invalid('malformed_admission_scenario'); }
