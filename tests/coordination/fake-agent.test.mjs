@@ -117,3 +117,58 @@ test('changing synthetic candidate SHA changes output key',()=>{
   s.review.synthetic_head_sha='c'.repeat(40);
   assert.notEqual(a.idempotency_key,runFakeAgent(s).idempotency_key);
 });
+
+test('B8 blocks operational fields deeply nested in each synthetic payload',()=>{
+  for (const location of [
+    s=>s.scenario.policy.credentials={key:'never-used'},
+    s=>s.scenario.contract.token='unused',
+    s=>s.scenario.backlog.tasks[0].api_key='unused',
+    s=>s.review.provider='unused',
+    s=>s.evidence.workflow={id:1},
+    s=>s.scenario.policy.otherReservations.push({files:[],dispatch:true}),
+    s=>s.review.nested={agent:{credentials:'no'}},
+    s=>s.evidence.nested=[{secret:'do-not-touch'}]
+  ]) {
+    const s=sample();location(s);
+    denied(s,'unsupported_operational_input');
+  }
+});
+test('B8 blocks mixed-case and hyphenated nested operational keys',()=>{
+  const a=sample();a.scenario.policy.API_KEY='unused';
+  denied(a,'unsupported_operational_input');
+  const b=sample();b.review['access-token']='unused';
+  denied(b,'unsupported_operational_input');
+  const c=sample();c.evidence.Authorization='Bearer unused';
+  denied(c,'unsupported_operational_input');
+});
+test('B8 denies cyclic or shared references, exotic prototypes and accessors before admission',()=>{
+  const cycle=sample();cycle.scenario.policy.self=cycle;
+  denied(cycle,'invalid_fixture_structure');
+  const shared=sample();shared.evidence.extra=shared.scenario.contract.files;
+  denied(shared,'invalid_fixture_structure');
+  const special=sample();special.review.bad=new Map();
+  denied(special,'invalid_fixture_structure');
+  const getter=sample();Object.defineProperty(getter.review,'unsafe',{get(){throw Error('getter evaluated')}});
+  denied(getter,'invalid_fixture_structure');
+});
+test('B8 denies oversized and non-json fixture values before running simulator',()=>{
+  const s=sample();s.review.unexpected=undefined;
+  denied(s,'invalid_fixture_structure');
+  const t=sample();t.evidence.invalid=()=>0;
+  denied(t,'invalid_fixture_structure');
+  const deep=sample();let node=deep.review;
+  for(let i=0;i<27;i++){node.child={};node=node.child}
+  denied(deep,'invalid_fixture_structure');
+});
+test('B8 denies non-enumerable operational keys without executing getters',()=>{
+  const a=sample();
+  Object.defineProperty(a.scenario.policy,'token',{value:'unused',enumerable:false});
+  denied(a,'unsupported_operational_input');
+});
+test('B8 does not break the valid synthetic fixture or deterministic replay',()=>{
+  const s=sample(),a=runFakeAgent(s),b=runFakeAgent(sample());
+  assert.equal(a.result,'fake_ready_for_owner');
+  assert.equal(a.idempotency_key,b.idempotency_key);
+  assert.equal(a.execution_enabled,false);
+  assert.equal(replayFakeAgent(sample(),[a.idempotency_key]).reason,'duplicate_replay');
+});
