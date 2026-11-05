@@ -117,3 +117,120 @@ test('changing synthetic candidate SHA changes output key',()=>{
   s.review.synthetic_head_sha='c'.repeat(40);
   assert.notEqual(a.idempotency_key,runFakeAgent(s).idempotency_key);
 });
+
+test('B8 blocks operational fields deeply nested in each synthetic payload',()=>{
+  for (const location of [
+    s=>s.scenario.policy.credentials={key:'never-used'},
+    s=>s.scenario.contract.token='unused',
+    s=>s.scenario.backlog.tasks[0].api_key='unused',
+    s=>s.review.provider='unused',
+    s=>s.evidence.workflow={id:1},
+    s=>s.scenario.policy.otherReservations.push({files:[],dispatch:true}),
+    s=>s.review.nested={agent:{credentials:'no'}},
+    s=>s.evidence.nested=[{secret:'do-not-touch'}]
+  ]) {
+    const s=sample();location(s);
+    denied(s,'unsupported_operational_input');
+  }
+});
+test('B8 blocks mixed-case and hyphenated nested operational keys',()=>{
+  const a=sample();a.scenario.policy.API_KEY='unused';
+  denied(a,'unsupported_operational_input');
+  const b=sample();b.review['access-token']='unused';
+  denied(b,'unsupported_operational_input');
+  const c=sample();c.evidence.Authorization='Bearer unused';
+  denied(c,'unsupported_operational_input');
+});
+test('B8 denies cyclic or shared references, exotic prototypes and accessors before admission',()=>{
+  const cycle=sample();cycle.scenario.policy.self=cycle;
+  denied(cycle,'invalid_fixture_structure');
+  const shared=sample();shared.evidence.extra=shared.scenario.contract.files;
+  denied(shared,'invalid_fixture_structure');
+  const special=sample();special.review.bad=new Map();
+  denied(special,'invalid_fixture_structure');
+  const getter=sample();Object.defineProperty(getter.review,'unsafe',{get(){throw Error('getter evaluated')}});
+  denied(getter,'invalid_fixture_structure');
+});
+test('B8 denies oversized and non-json fixture values before running simulator',()=>{
+  const s=sample();s.review.unexpected=undefined;
+  denied(s,'invalid_fixture_structure');
+  const t=sample();t.evidence.invalid=()=>0;
+  denied(t,'invalid_fixture_structure');
+  const deep=sample();let node=deep.review;
+  for(let i=0;i<27;i++){node.child={};node=node.child}
+  denied(deep,'invalid_fixture_structure');
+});
+test('B8 denies non-enumerable operational keys without executing getters',()=>{
+  const a=sample();
+  Object.defineProperty(a.scenario.policy,'token',{value:'unused',enumerable:false});
+  denied(a,'unsupported_operational_input');
+});
+test('B8 does not break the valid synthetic fixture or deterministic replay',()=>{
+  const s=sample(),a=runFakeAgent(s),b=runFakeAgent(sample());
+  assert.equal(a.result,'fake_ready_for_owner');
+  assert.equal(a.idempotency_key,b.idempotency_key);
+  assert.equal(a.execution_enabled,false);
+  assert.equal(replayFakeAgent(sample(),[a.idempotency_key]).reason,'duplicate_replay');
+});
+
+test('M2: rejects nine plausible credential names absent from previous denylist',()=>{
+  const names=[
+    'client_secret','refresh_token','bearer_token','private_key','pat',
+    'oauth_token','session_token','ssh_key','github_token'
+  ];
+  for(const key of names){
+    for(const location of [
+      s=>s.scenario.policy,
+      s=>s.scenario.contract,
+      s=>s.review,
+      s=>s.evidence,
+      s=>s.scenario.backlog.tasks[0],
+      s=>s.scenario.policy.otherReservations[0]
+    ]) {
+      const s=sample();
+      s.scenario.policy.otherReservations=[{task_id:'LF-999',files:[]}];
+      location(s)[key]='opaque-value';
+      denied(s,'unsupported_operational_input');
+    }
+  }
+});
+test('M2: allowlist rejects completely unknown keys in every recognized object',()=>{
+  for(const location of [
+    s=>s,
+    s=>s.scenario,
+    s=>s.scenario.backlog,
+    s=>s.scenario.backlog.tasks[1],
+    s=>s.scenario.contract,
+    s=>s.scenario.policy,
+    s=>s.scenario.policy.otherReservations[0],
+    s=>s.scenario.existingLeases[0],
+    s=>s.review,
+    s=>s.evidence
+  ]){
+    const s=sample();
+    s.scenario.policy.otherReservations=[{task_id:'LF-999',files:[]}];
+    s.scenario.existingLeases=[{task_id:'LF-998',implementer:'Claude'}];
+    location(s).unrecognized_field='unused';
+    denied(s,'unsupported_operational_input');
+  }
+});
+test('M2: array member props and sparse array entries are denied',()=>{
+  const withExtra=sample();
+  withExtra.scenario.contract.files.unexpected='value';
+  denied(withExtra,'unsupported_operational_input');
+  const sparse=sample();
+  sparse.scenario.backlog.tasks.length=3;
+  denied(sparse,'unsupported_operational_input');
+  const changedFiles=sample();
+  changedFiles.evidence.changed_files['client_secret']='unused';
+  denied(changedFiles,'unsupported_operational_input');
+});
+test('M2: known schema fields preserve legacy admission outcomes',()=>{
+  const s=sample();
+  assert.equal(runFakeAgent(s).result,'fake_ready_for_owner');
+  const t=sample();t.scenario.backlog.tasks[1].status='blocked';
+  assert.equal(runFakeAgent(t).reason,'admission_denied');
+  const u=sample();u.review.agent='Codex';
+  assert.equal(runFakeAgent(u).reason,'independent_fake_review_required');
+  assert.equal(replayFakeAgent(sample(),[runFakeAgent(sample()).idempotency_key]).reason,'duplicate_replay');
+});

@@ -215,11 +215,29 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-015",
       "owner": "ChatGPT",
       "branch": "simulation/lf-015-fake-agent-adapter",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-015.md",
+        "scripts/autopilot/fake-agent.mjs",
+        "tests/coordination/fake-agent.test.mjs"
+      ],
+      "completion": {
+        "head_sha": "0d542b81693299525fdbff86855ffe1dd1cd1205",
+        "merge_sha": "eed7f8c21550094965fe7b191a1194216dbce01a"
+      }
+    },
+    {
+      "id": "LF-016",
+      "owner": "ChatGPT",
+      "branch": "security/lf-016-fake-adapter-boundaries",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-016.md",
+        "docs/autopilot/LF-001d-SAFETY-GATES.md",
         "scripts/autopilot/fake-agent.mjs",
         "tests/coordination/fake-agent.test.mjs"
       ]
@@ -319,3 +337,12 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable ChatGPT; revisor propuesto Claude Code. Rama `simulation/lf-015-fake-agent-adapter`, base `ea23fb8cec82b377d3b76035d66d75e867473398`.
 - Alcance en `docs/specs/LF-015.md`, script y suite de prueba de simulación. Conserva `execution_enabled=false` y todas las tareas operativas bloqueadas; sin credenciales, agentes, gastos ni despliegues.
 - CI, revisión independiente y autorización de merge pendientes.
+
+## LF-015 — cierre verificable
+- PR #11 fusionado en `main` el 2026-11-03: head `0d542b81693299525fdbff86855ffe1dd1cd1205`, merge `eed7f8c21550094965fe7b191a1194216dbce01a`.
+- Ambos checks obligatorios en `success` para ese head; 80/80 pruebas. LF-015 se libera solo mediante padres de merge y ancestría verificables por CI; sin ejecutar agentes ni usar servicios.
+
+## LF-016 — B8 y puertas pre-LF-001d
+- Responsable ChatGPT; revisor propuesto Claude Code. Rama `security/lf-016-fake-adapter-boundaries`; base `eed7f8c21550094965fe7b191a1194216dbce01a`.
+- Alcance en `docs/specs/LF-016.md` y puertas futuras en `docs/autopilot/LF-001d-SAFETY-GATES.md`. Refuerzo de validación de entrada únicamente en adaptador falso, pruebas negativas y documentos.
+- `docs/autopilot/BACKLOG.json` intacto y `execution_enabled=false`. Sin nuevas credenciales, costes, despliegues, conexión de proveedores ni autorizaciones de LF-001d. CI y revisión independiente pendientes.
