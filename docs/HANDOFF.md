@@ -232,7 +232,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-016",
       "owner": "ChatGPT",
       "branch": "security/lf-016-fake-adapter-boundaries",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -240,6 +240,24 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "docs/autopilot/LF-001d-SAFETY-GATES.md",
         "scripts/autopilot/fake-agent.mjs",
         "tests/coordination/fake-agent.test.mjs"
+      ],
+      "completion": {
+        "head_sha": "069b1aa668058ea0bb097e6a48f3ea8a60ba5b86",
+        "merge_sha": "c1726a7ae29cea2132e2f4e6379bd9b8f04d9fbb"
+      }
+    },
+    {
+      "id": "LF-017",
+      "owner": "ChatGPT",
+      "branch": "planning/lf-017-lf-001d-spec",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-016.md",
+        "docs/specs/LF-017.md",
+        "docs/specs/LF-001d.md",
+        "docs/autopilot/LF-001d-SAFETY-GATES.md"
       ]
     }
   ]
@@ -346,3 +364,22 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Responsable ChatGPT; revisor propuesto Claude Code. Rama `security/lf-016-fake-adapter-boundaries`; base `eed7f8c21550094965fe7b191a1194216dbce01a`.
 - Alcance en `docs/specs/LF-016.md` y puertas futuras en `docs/autopilot/LF-001d-SAFETY-GATES.md`. Refuerzo de validación de entrada únicamente en adaptador falso, pruebas negativas y documentos.
 - `docs/autopilot/BACKLOG.json` intacto y `execution_enabled=false`. Sin nuevas credenciales, costes, despliegues, conexión de proveedores ni autorizaciones de LF-001d. CI y revisión independiente pendientes.
+
+## LF-016 — cierre verificado tras corrección M2
+
+- PR #12 fusionado el 2026-11-05, con autorización expresa del propietario. Head auditado: `069b1aa668058ea0bb097e6a48f3ea8a60ba5b86`; merge: `c1726a7ae29cea2132e2f4e6379bd9b8f04d9fbb`.
+- Segunda auditoría independiente aportada por el propietario: APROBADO PARA MERGE y 90/90 pruebas. Se atribuye a esa auditoría; no es una revisión independiente realizada por LF-017.
+- Verificación final previa al merge: ambos checks obligatorios success en el head exacto, sin conflictos y ruleset activo de main sin bypass. Padres del merge: `eed7f8c21550094965fe7b191a1194216dbce01a` y el head auditado.
+- Constancias: https://github.com/Aarom-Villanueva/leadflow-ai/pull/12#issuecomment-6660612884 y https://github.com/Aarom-Villanueva/leadflow-ai/pull/12#issuecomment-6660699220.
+- Reserva completed con prueba Git comprobable por el gate, sin habilitar LF-001d.
+
+## LF-017 — especificación preparatoria de LF-001d
+
+- Responsable: ChatGPT. Revisor propuesto: Claude Code; revisión independiente pendiente, no se inicia ningún agente por esta reserva.
+- Autorización del propietario: preparación documental del cierre LF-016 y especificación LF-001d en rama y PR; no implementación, ejecución, credenciales, gasto ni despliegue.
+- Base: `c1726a7ae29cea2132e2f4e6379bd9b8f04d9fbb`. Rama: `planning/lf-017-lf-001d-spec`. Archivos reservados: registro automático anterior, seis rutas exactas.
+- Contrato de tarea: docs/specs/LF-017.md. Propuesta futura: docs/specs/LF-001d.md. BACKLOG intacto, execution_enabled=false; LF-002a/LF-002/LF-003 siguen bloqueadas.
+- Manifiesto SHA-256 de los seis archivos entregados: mensaje del commit de entrega, calculado después de escribirlos para evitar un hash autorreferente de HANDOFF. El SHA del commit identifica el candidato completo.
+- Validación local, candidato y CI: se registrarán en el PR con comandos y resultados reales. No declarar CI ni revisión aprobadas antes de observarlas.
+- Riesgos: diseño no implementado, identidad/custodia/presupuesto/aislamiento pendientes. No seleccionar proveedor ni convertir una simulación en evidencia operativa.
+- Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente del SHA exacto y autorización nueva de merge. La reserva LF-017 permanece active hasta integración comprobada.
