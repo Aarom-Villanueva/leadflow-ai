@@ -10,6 +10,13 @@
  *
  * Reuses the same path-validation pattern as `validFile` in fake-agent.mjs: a relative path made of
  * `/`-separated segments of `[a-zA-Z0-9._-]`, with no `.`/`..` segment (no traversal).
+ *
+ * Every entry's shape is validated structurally before anything about it is trusted: `content` must
+ * be exactly `typeof === 'string'` and `isSymlink` exactly `typeof === 'boolean'`. Neither is ever
+ * coerced, stringified or inferred — a `Buffer`, a missing `content`, or an ambiguous `isSymlink`
+ * (e.g. the string `"true"`) is rejected outright and never silently treated as empty content or as
+ * `isSymlink: false`. Byte-size accounting only ever runs on an entry that already passed this shape
+ * check, so a malformed entry can never be counted as a valid zero-byte file.
  */
 
 const PATH = /^(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+$/;
@@ -23,6 +30,16 @@ function validPath(path) {
 
 function isForbidden(path) {
   return FORBIDDEN_EXACT.has(path) || path.startsWith(FORBIDDEN_PREFIX);
+}
+
+/** Strict, no coercion: only an actual string is ever valid content. */
+function validContent(content) {
+  return typeof content === 'string';
+}
+
+/** Strict, no coercion: only the literal booleans are a valid, explicit isSymlink flag. */
+function validIsSymlinkFlag(isSymlink) {
+  return typeof isSymlink === 'boolean';
 }
 
 function validScopeFiles(scopeFiles) {
@@ -73,6 +90,14 @@ export function validatePublication({ scopeFiles, diff, limits }) {
       continue;
     }
     seenPaths.add(path);
+    if (!validContent(content)) {
+      reasons.push('invalid_content');
+      continue;
+    }
+    if (!validIsSymlinkFlag(isSymlink)) {
+      reasons.push('invalid_is_symlink');
+      continue;
+    }
     if (isSymlink === true) {
       reasons.push('symlink_rejected');
       continue;
@@ -85,7 +110,7 @@ export function validatePublication({ scopeFiles, diff, limits }) {
       reasons.push('outside_scope');
       continue;
     }
-    totalBytes += typeof content === 'string' ? Buffer.byteLength(content, 'utf8') : 0;
+    totalBytes += Buffer.byteLength(content, 'utf8');
   }
 
   if (totalBytes > limits.maxTotalBytes) reasons.push('diff_too_large');
