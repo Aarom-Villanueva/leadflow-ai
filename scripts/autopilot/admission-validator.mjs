@@ -17,7 +17,9 @@ function subsetOf(a, b) {
 }
 
 /**
- * Checks 1–10 of §5. Read-only: never reserves, acquires or consumes anything. Checks 3–7 are
+ * Checks 1–10 of §5. Read-only: never reserves, acquires or consumes anything. A valid-but-unbound
+ * authorization (registered for a different task_id, spec_sha256, scope_files or base_sha) is
+ * rejected as part of checks 1–2, each binding checked independently of the others. Checks 3–7 are
  * deliberately evaluated independently, never short-circuited, so each can be exercised in isolation
  * with the rest of a request valid (§5, §12, §13).
  */
@@ -26,7 +28,18 @@ export function evaluateAdmissionChecks({ sources, authorizationLedger, budgetLe
 
   // 1–2: authorization exists, unexpired, unrevoked, unused, and its (synthetic) owner proof verifies.
   const auth = authorizationLedger.validate({ authorizationId: request.authorizationId, now });
-  if (!auth.ok) reasons.push(auth.reason);
+  if (!auth.ok) {
+    reasons.push(auth.reason);
+  } else {
+    // The authorization must be bound to exactly this request: an authorization that is otherwise
+    // valid but was registered for a different task, spec, scope or base is never implicitly
+    // transferable. Each binding is checked independently so a single mismatched field denies on its
+    // own, without the others explaining it away.
+    if (auth.entry.taskId !== request.taskId) reasons.push('authorization_task_mismatch');
+    if (auth.entry.specSha256 !== request.specSha256) reasons.push('authorization_spec_mismatch');
+    if (!sameSet(auth.entry.scopeFiles, request.scopeFiles)) reasons.push('authorization_scope_mismatch');
+    if (auth.entry.baseSha !== request.baseSha) reasons.push('authorization_base_mismatch');
+  }
 
   // 3: base_sha is still the task's live base — independent of whether the spec hash still matches.
   if (request.baseSha !== sources.currentBaseSha) reasons.push('stale_base');

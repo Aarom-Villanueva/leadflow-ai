@@ -18,6 +18,7 @@ function validEntry(entry) {
   return entry && typeof entry === 'object' &&
     typeof entry.authorizationId === 'string' && entry.authorizationId &&
     typeof entry.taskId === 'string' && entry.taskId &&
+    /^[a-f0-9]{40}$/.test(entry.baseSha ?? '') &&
     /^[a-f0-9]{64}$/.test(entry.specSha256 ?? '') &&
     Array.isArray(entry.scopeFiles) && entry.scopeFiles.length > 0 &&
     Number.isInteger(entry.expiresAt) &&
@@ -45,7 +46,9 @@ export class AuthorizationLedger {
 
   /**
    * Read-only check 1–2 of §5: exists, not expired, not revoked, not reused, and the owner identity
-   * proof (synthetic) verifies. Never mutates; never consumes.
+   * proof (synthetic) verifies. Does not, by itself, check that a request's task_id, spec_sha256,
+   * scope_files or base_sha match this entry — admission-validator.mjs binds those explicitly against
+   * the returned `entry` before proceeding. Never mutates; never consumes.
    */
   validate({ authorizationId, now }) {
     const e = this.#entries.get(authorizationId);

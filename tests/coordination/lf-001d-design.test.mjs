@@ -53,11 +53,47 @@ test('acquire rejects a second concurrent request for non-overlapping scope only
   assert.notEqual(a.fenceToken, b.fenceToken);
 });
 
-test('confirmed rejection: release requires the live fencing token, never a stale one', () => {
+test('regression: acquire rejects a second lease for a task that still holds one, even over non-overlapping scope_files', () => {
+  const store = new LeaseStore();
+  const first = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  assert.equal(first.ok, true);
+  // Different, non-overlapping paths: the old code's overlap check alone would have let this through
+  // and silently overwritten the first lease, losing its protection on docs/specs/LF-100.md.
+  const second = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100-OTHER.md'] });
+  assert.deepEqual(second, { confirmed: true, ok: false, reason: 'task_already_has_lease' });
+});
+
+test('regression: a rejected second acquisition never modifies the original lease', () => {
+  const store = new LeaseStore();
+  const first = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100-OTHER.md'] });
+  const snapshot = store.inspect('LF-100');
+  assert.equal(snapshot.fenceToken, first.fenceToken);
+  assert.deepEqual(snapshot.scopeFiles, ['docs/specs/LF-100.md']);
+  // The original scope is still exclusively protected: a third party cannot acquire over it either.
+  const third = store.acquire({ taskId: 'LF-101', scopeFiles: ['docs/specs/LF-100.md'] });
+  assert.deepEqual(third, { confirmed: true, ok: false, reason: 'lease_overlap' });
+});
+
+test('regression: once a lease is properly invalidated and released, a fresh acquisition for the same task is allowed', () => {
+  const store = new LeaseStore();
+  const first = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  store.invalidate({ taskId: 'LF-100', fenceToken: first.fenceToken });
+  store.release({ taskId: 'LF-100', fenceToken: first.fenceToken });
+  const second = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100-OTHER.md'] });
+  assert.equal(second.ok, true);
+  assert.notEqual(second.fenceToken, first.fenceToken);
+});
+
+test('confirmed rejection: release requires the live fencing token, never a stale one, and only after invalidation', () => {
   const store = new LeaseStore();
   const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
-  const released = store.release({ taskId: 'LF-100', fenceToken: lease.fenceToken + 1 });
-  assert.deepEqual(released, { confirmed: true, ok: false, reason: 'fence_token_mismatch' });
+  const releasedStale = store.release({ taskId: 'LF-100', fenceToken: lease.fenceToken + 1 });
+  assert.deepEqual(releasedStale, { confirmed: true, ok: false, reason: 'fence_token_mismatch' });
+  // The right token alone is still not enough: release refuses before a confirmed invalidation.
+  const releasedUninvalidated = store.release({ taskId: 'LF-100', fenceToken: lease.fenceToken });
+  assert.deepEqual(releasedUninvalidated, { confirmed: true, ok: false, reason: 'not_invalidated' });
+  store.invalidate({ taskId: 'LF-100', fenceToken: lease.fenceToken });
   const real = store.release({ taskId: 'LF-100', fenceToken: lease.fenceToken });
   assert.equal(real.ok, true);
 });
@@ -98,6 +134,44 @@ test('race: attempt registration first makes the competing invalidation fail (ne
   assert.deepEqual(invalidate, { confirmed: true, ok: false, reason: 'attempt_already_registered' });
 });
 
+test('regression: exact reproduction — responseLost, then release, then a second lease, must not allow a second send', () => {
+  const store = new LeaseStore();
+  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  let sends = 0;
+  const first = invokeProvider({
+    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken,
+    send: () => { sends++; return { ok: true }; }, responseLost: true,
+  });
+  assert.equal(first.outcome, 'unknown_outcome');
+  assert.equal(sends, 1);
+  // The old code let this succeed outright, which then let a second lease and a second send through.
+  const released = store.release({ taskId: 'LF-100', fenceToken: lease.fenceToken });
+  assert.deepEqual(released, { confirmed: true, ok: false, reason: 'attempt_already_registered' });
+  // invalidate is refused too, for the same reason, so there is no way around release being refused.
+  const invalidated = store.invalidate({ taskId: 'LF-100', fenceToken: lease.fenceToken });
+  assert.deepEqual(invalidated, { confirmed: true, ok: false, reason: 'attempt_already_registered' });
+  // With the lease still live, a second lease for the same (or any overlapping) scope is rejected.
+  const secondLease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  assert.equal(secondLease.ok, false);
+  const secondAttempt = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1);
+});
+
+test('regression: a stale token from before a legitimate release is rejected by every operation afterward', () => {
+  const store = new LeaseStore();
+  const first = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  store.invalidate({ taskId: 'LF-100', fenceToken: first.fenceToken });
+  store.release({ taskId: 'LF-100', fenceToken: first.fenceToken });
+  const second = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  assert.equal(second.ok, true);
+  assert.notEqual(second.fenceToken, first.fenceToken);
+  // The old (now stale) token can no longer invalidate, release or register an attempt.
+  assert.deepEqual(store.invalidate({ taskId: 'LF-100', fenceToken: first.fenceToken }), { confirmed: true, ok: false, reason: 'unknown_or_stale_lease' });
+  assert.deepEqual(store.release({ taskId: 'LF-100', fenceToken: first.fenceToken }), { confirmed: true, ok: false, reason: 'fence_token_mismatch' });
+  assert.deepEqual(store.registerAttempt({ taskId: 'LF-100', fenceToken: first.fenceToken }), { confirmed: true, ok: false, reason: 'fence_token_invalid' });
+});
+
 test('restart with partial state: inspect gives a confirmed, read-only snapshot, never a guess', () => {
   const store = new LeaseStore();
   assert.equal(store.inspect('LF-100'), null);
@@ -133,7 +207,7 @@ test('two simultaneous reservations that together exceed the limit: the second f
 test('unknown observed cost blocks every new reservation and is never treated as zero', () => {
   const ledger = new BudgetLedger({ hardLimitCents: 100 });
   ledger.reserve({ taskId: 'LF-100', fenceToken: 1, estimatedCostCents: 10 });
-  ledger.recordObservedCost({ taskId: 'LF-100', costCentsOrUnknown: 'unknown' });
+  ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 'unknown' });
   assert.equal(ledger.canReserve(1), false);
   const blocked = ledger.reserve({ taskId: 'LF-101', fenceToken: 2, estimatedCostCents: 1 });
   assert.equal(blocked.ok, false);
@@ -145,6 +219,65 @@ test('release requires the fencing token that reserved the budget', () => {
   assert.equal(reserved.ok, true);
   assert.deepEqual(ledger.release({ taskId: 'LF-100', fenceToken: 2 }), { confirmed: true, ok: false, reason: 'fence_token_mismatch' });
   assert.equal(ledger.release({ taskId: 'LF-100', fenceToken: 1 }).ok, true);
+});
+
+test('regression: exact reproduction — reserve 100, consume 100, release, then a second 100 reservation must fail', () => {
+  const ledger = new BudgetLedger({ hardLimitCents: 100 });
+  const reserved = ledger.reserve({ taskId: 'LF-100', fenceToken: 1, estimatedCostCents: 100 });
+  assert.equal(reserved.ok, true);
+  const recorded = ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 100 });
+  assert.deepEqual(recorded, { confirmed: true, ok: true, unknown: false, consumedCents: 100 });
+  // The old code let this "release" the already-consumed 100 back to availability.
+  const released = ledger.release({ taskId: 'LF-100', fenceToken: 1 });
+  assert.deepEqual(released, { confirmed: true, ok: false, reason: 'no_reservation' });
+  const secondReserve = ledger.reserve({ taskId: 'LF-101', fenceToken: 2, estimatedCostCents: 100 });
+  assert.deepEqual(secondReserve, { confirmed: true, ok: false, reason: 'budget_not_available' });
+  assert.equal(ledger.inspect('LF-100').totalConsumedCents, 100);
+});
+
+test('full consumption permanently removes the entire reservation from availability', () => {
+  const ledger = new BudgetLedger({ hardLimitCents: 100 });
+  ledger.reserve({ taskId: 'LF-100', fenceToken: 1, estimatedCostCents: 100 });
+  ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 100 });
+  assert.equal(ledger.canReserve(1), false);
+});
+
+test('partial consumption returns only the unconsumed difference to availability', () => {
+  const ledger = new BudgetLedger({ hardLimitCents: 100 });
+  ledger.reserve({ taskId: 'LF-100', fenceToken: 1, estimatedCostCents: 100 });
+  const recorded = ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 60 });
+  assert.deepEqual(recorded, { confirmed: true, ok: true, unknown: false, consumedCents: 60 });
+  assert.equal(ledger.canReserve(40), true);
+  assert.equal(ledger.canReserve(41), false);
+  assert.equal(ledger.inspect('LF-100').totalConsumedCents, 60);
+});
+
+test('unknown cost stays pending and blocked, then a later real reconciliation finalizes it exactly once', () => {
+  const ledger = new BudgetLedger({ hardLimitCents: 100 });
+  ledger.reserve({ taskId: 'LF-100', fenceToken: 1, estimatedCostCents: 100 });
+  const unknown = ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 'unknown' });
+  assert.deepEqual(unknown, { confirmed: true, ok: true, unknown: true });
+  // The reservation is neither released nor finalized while unknown; it stays blocked.
+  assert.deepEqual(ledger.release({ taskId: 'LF-100', fenceToken: 1 }), { confirmed: true, ok: false, reason: 'cost_unreconciled' });
+  assert.equal(ledger.canReserve(1), false, 'an unresolved cost blocks every other reservation too');
+  // A later, repeated reconciliation with a real number finalizes it exactly once.
+  const resolved = ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 70 });
+  assert.deepEqual(resolved, { confirmed: true, ok: true, unknown: false, consumedCents: 70 });
+  assert.equal(ledger.canReserve(30), true);
+  assert.equal(ledger.canReserve(31), false);
+  // Reconciling the same, already-finalized task again is refused: no duplicate charge.
+  assert.throws(() => ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 10 }));
+  assert.equal(ledger.inspect('LF-100').totalConsumedCents, 70);
+});
+
+test('reconciling with a real number twice in a row never doubles the charge', () => {
+  const ledger = new BudgetLedger({ hardLimitCents: 100 });
+  ledger.reserve({ taskId: 'LF-100', fenceToken: 1, estimatedCostCents: 100 });
+  ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 50 });
+  assert.throws(() => ledger.recordObservedCost({ taskId: 'LF-100', fenceToken: 1, costCentsOrUnknown: 50 }));
+  assert.equal(ledger.inspect('LF-100').totalConsumedCents, 50);
+  assert.equal(ledger.canReserve(50), true);
+  assert.equal(ledger.canReserve(51), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -281,6 +414,43 @@ test('unknown or expired authorization, budget shortfall, live lease overlap and
 });
 
 // ---------------------------------------------------------------------------
+// Regression: authorization must be bound to the request, not just valid on its own
+// ---------------------------------------------------------------------------
+
+function assertDeniedWithoutSideEffects({ authorization, request, sources, now, expectedReason }) {
+  const { leaseStore, budgetLedger, authorizationLedger } = freshLedgers({ authorization });
+  const result = admitTask({ sources, authorizationLedger, budgetLedger, leaseStore, request, now });
+  assert.deepEqual(result, { admitted: false, reasons: [expectedReason] });
+  assert.equal(leaseStore.inspect(request.taskId), null);
+  assert.equal(budgetLedger.inspect(request.taskId).reserved, null);
+  assert.equal(authorizationLedger.inspect(request.authorizationId).consumed, false);
+}
+
+test('regression: an otherwise-valid authorization registered for a different task_id denies alone, with zero side effects', () => {
+  const { authorization, request, sources, now } = scenario();
+  authorization.taskId = 'LF-other';
+  assertDeniedWithoutSideEffects({ authorization, request, sources, now, expectedReason: 'authorization_task_mismatch' });
+});
+
+test('regression: an otherwise-valid authorization registered for a different spec_sha256 denies alone, with zero side effects', () => {
+  const { authorization, request, sources, now } = scenario();
+  authorization.specSha256 = '3333333333333333333333333333333333333333333333333333333333333333';
+  assertDeniedWithoutSideEffects({ authorization, request, sources, now, expectedReason: 'authorization_spec_mismatch' });
+});
+
+test('regression: an otherwise-valid authorization registered for different scope_files denies alone, with zero side effects', () => {
+  const { authorization, request, sources, now } = scenario();
+  authorization.scopeFiles = ['docs/specs/OTHER-TASK.md'];
+  assertDeniedWithoutSideEffects({ authorization, request, sources, now, expectedReason: 'authorization_scope_mismatch' });
+});
+
+test('regression: an otherwise-valid authorization registered for a different base_sha denies alone, with zero side effects', () => {
+  const { authorization, request, sources, now } = scenario();
+  authorization.baseSha = 'cccccccccccccccccccccccccccccccccccccccc';
+  assertDeniedWithoutSideEffects({ authorization, request, sources, now, expectedReason: 'authorization_base_mismatch' });
+});
+
+// ---------------------------------------------------------------------------
 // Durable admission operation: compensation, confirmed rejection vs unknown_outcome
 // ---------------------------------------------------------------------------
 
@@ -320,10 +490,11 @@ test('confirmed rejection of budget reserve (a stale prior reservation for the s
 test('confirmed rejection of authorization consume: budget and lease are both released, nothing admitted', () => {
   const { request, sources, now } = scenario();
   const { leaseStore, budgetLedger } = freshLedgers({});
-  // Test double: `validate` passes so the read-only checks clear, but `consume` fails for real,
-  // in isolation, exercising the orchestrator's step-3 compensation branch.
+  // Test double: `validate` passes, with an entry correctly bound to this request, so the read-only
+  // checks clear, but `consume` fails for real, in isolation, exercising the orchestrator's step-3
+  // compensation branch.
   const failingAuthorizationLedger = {
-    validate: () => ({ ok: true, entry: {} }),
+    validate: () => ({ ok: true, entry: { taskId: request.taskId, specSha256: request.specSha256, scopeFiles: request.scopeFiles, baseSha: request.baseSha } }),
     consume: () => ({ confirmed: true, ok: false, reason: 'authorization_revoked' }),
     inspect: () => ({ consumed: false }),
   };
@@ -465,6 +636,37 @@ test('response lost after the send attempt was already registered: unknown_outco
   const result = invokeProvider({
     leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken,
     send: () => { sends++; return { ok: true }; }, responseLost: true,
+  });
+  assert.deepEqual(result, { outcome: 'unknown_outcome', sent: 'unknown' });
+  assert.equal(sends, 1);
+  const retry = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(retry.outcome, 'denied');
+  assert.equal(sends, 1);
+});
+
+test('regression: send() throwing after the attempt was registered is unknown_outcome, never a thrown error, never a second send', () => {
+  const store = new LeaseStore();
+  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken,
+    send: () => { sends++; throw new Error('simulated provider failure with a sensitive detail'); },
+  });
+  assert.deepEqual(result, { outcome: 'unknown_outcome', sent: 'unknown' });
+  assert.equal(sends, 1);
+  assert.equal(JSON.stringify(result).includes('sensitive'), false, 'the real error is never exposed');
+  const retry = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(retry.outcome, 'denied');
+  assert.equal(sends, 1);
+});
+
+test('regression: send() throwing while responseLost is also true stays unknown_outcome, never a thrown error', () => {
+  const store = new LeaseStore();
+  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, responseLost: true,
+    send: () => { sends++; throw new Error('simulated timeout'); },
   });
   assert.deepEqual(result, { outcome: 'unknown_outcome', sent: 'unknown' });
   assert.equal(sends, 1);

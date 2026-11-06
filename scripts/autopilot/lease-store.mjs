@@ -7,6 +7,12 @@ import { matchesGlob } from 'node:path';
  * definite read of that state, never an assumption. Modeling a caller that cannot observe a result
  * (a lost response) is the caller's concern, not this store's: see admission-validator.mjs and
  * provider-invocation.mjs for how `unknown_outcome` is produced without ever consulting this file.
+ *
+ * Two invariants `release` relies on: (1) at most one live, non-invalidated lease exists per task_id
+ * at any time — `acquire` refuses a second one for the same task even over non-overlapping
+ * scope_files, so a lease is never silently overwritten; (2) a lease can only be released after a
+ * confirmed `invalidate`, which itself always refuses while an invocation attempt is registered —
+ * presenting the right fencing token is never, on its own, enough to release a lease.
  */
 
 function samePathOrGlobOverlap(a, b) {
@@ -41,11 +47,18 @@ export class LeaseStore {
   /**
    * Step 1 of the durable admission operation (§5). Rejects on any live lease, of this task or any
    * other, whose scope_files overlaps — exclusion by task AND by overlapping paths, across tasks and
-   * authorizations alike.
+   * authorizations alike. Exclusion by task is checked first and independently of path overlap: a
+   * task that still holds any live (non-invalidated) lease is rejected even when the newly requested
+   * scope_files do not overlap that lease's own scope_files — otherwise a second acquisition for the
+   * same task_id would silently overwrite and lose track of the first lease's protection.
    */
   acquire({ taskId, scopeFiles }) {
     if (typeof taskId !== 'string' || !taskId) throw new Error('Invalid task_id');
     if (!validScope(scopeFiles)) throw new Error('Invalid scope_files');
+    const existing = this.#leases.get(taskId);
+    if (existing && !existing.invalidated) {
+      return { confirmed: true, ok: false, reason: 'task_already_has_lease' };
+    }
     if (this.hasOverlap(scopeFiles)) return { confirmed: true, ok: false, reason: 'lease_overlap' };
     const fenceToken = this.#nextToken++;
     this.#leases.set(taskId, { taskId, scopeFiles: [...scopeFiles], fenceToken, invalidated: false, attemptRegistered: false });
@@ -67,11 +80,20 @@ export class LeaseStore {
     return { confirmed: true, ok: true };
   }
 
-  /** Releases a lease. Only a fencing token that is still live, or already invalidated, may release it. */
+  /**
+   * Releases a lease. Presenting the correct fencing token is necessary but never sufficient: the
+   * lease must already have been confirmed `invalidate`d first. `invalidate` itself refuses while an
+   * invocation attempt is registered (§5), so this transitively keeps a lease — and whatever it
+   * protects — blocked for as long as a send's outcome is `unknown_outcome`; this offline
+   * implementation has no real channel to later confirm what a real provider actually did, so such a
+   * lease stays blocked, by design, until a future increment with a real reconciliation channel.
+   */
   release({ taskId, fenceToken }) {
     const lease = this.#leases.get(taskId);
     if (!lease) return { confirmed: true, ok: false, reason: 'unknown_lease' };
     if (lease.fenceToken !== fenceToken) return { confirmed: true, ok: false, reason: 'fence_token_mismatch' };
+    if (lease.attemptRegistered) return { confirmed: true, ok: false, reason: 'attempt_already_registered' };
+    if (!lease.invalidated) return { confirmed: true, ok: false, reason: 'not_invalidated' };
     this.#leases.delete(taskId);
     return { confirmed: true, ok: true };
   }

@@ -2,6 +2,7 @@
   "authorization": {
     "authorizationId": "AUTH-0001",
     "taskId": "LF-099",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "specSha256": "1111111111111111111111111111111111111111111111111111111111111111",
     "scopeFiles": ["docs/specs/LF-099.md"],
     "expiresAt": 2000000000,
