@@ -20,7 +20,7 @@ No autoriza: instalar dependencias, crear workflows, provisionar credenciales, s
 | Presupuesto (*Budget Ledger*) | Reserva atómica de costo antes de invocar; libera sobrante; bloquea ante costo desconocido | Confiable, componente separado del admisor |
 | Validador de admisión (*Admission Validator*) | Verifica, inmediatamente antes de admitir, spec/hash/decisiones/dependencias con prueba Git, reservas, base actual, autorización vigente, presupuesto y permisos efectivos | Confiable, determinista, sin IA (extiende el patrón ya usado en `simulate.mjs`/`check-done-proof.mjs`, pero contra el registro real, no contra un fixture) |
 | Almacén de leases (*Lease Store*) | Idempotencia durable por tarea/rutas; detecta llamadas concurrentes o repetidas | Confiable |
-| Ejecutor (*Executor sandbox*) | Corre el agente real sobre una tarea admitida, en una rama propia | **No confiable**: su texto, código generado y salida son siempre datos no confiables; sin red por defecto; sin secretos del proveedor ni token de publicación en entorno/disco/logs |
+| Ejecutor (*Executor sandbox*) | Corre el agente real sobre una tarea admitida, en una rama propia | **No confiable**: su texto, código generado y salida son siempre datos no confiables; sin red por defecto; **no recibe ninguna credencial** (ni del proveedor de IA, ni del *Authorization Ledger*, ni del *Budget Ledger*, ni del *Publisher*) en entorno, disco, metadatos ni logs — ver sección 6 |
 | Publicador (*Publisher*) | Único componente con credencial de escritura a GitHub; valida diff, rutas, símlinks y tamaño antes de publicar solo la rama autorizada | Confiable, credencial distinta de la del ejecutor |
 | Puerta de revisión (*Reviewer gate*) | Exige que el revisor sea distinto del ejecutor; nunca autoaprobación | Confiable |
 | Controlador de pausa (*Pause controller*) | Deshabilita admisiones nuevas, invalida autorizaciones pendientes, cancela procesos, confirma detención externa antes de liberar recursos | Confiable |
@@ -113,16 +113,43 @@ Secuencia de validación propuesta para el `Admission Validator` (orden de deneg
 4. Dependencias de la tarea están `done` con prueba Git real (reutilizando `verifyBacklogDone`/`verifiedMergeReleases`).
 5. `scope_files` coincide exactamente con la columna "Archivos previstos" de `docs/ROADMAP.md` y con la reserva vigente en `docs/HANDOFF.md` para esa tarea.
 6. Presupuesto: `Budget Ledger` reserva de forma atómica `estimated_cost_cents` sin exceder `hard_limit_cents`; sin reserva exitosa, no hay admisión.
-7. `Lease Store` no tiene un lease vivo para la misma tarea ni para el mismo `implementer`.
-8. Permisos efectivos del token/credencial a usar no exceden el alcance mínimo documentado (sección 6); un alcance declarado nunca se asume cumplido sin verificación.
+7. `Lease Store` no tiene un lease vivo —de esta tarea ni de ninguna otra— cuyo `scope_files` se solape con el solicitado.
+8. Permisos efectivos de las credenciales de los componentes confiables que intervienen (*Publisher*, invocación al proveedor) no exceden el alcance mínimo documentado en la sección 6; el ejecutor no posee ninguna credencial que verificar, por lo que este paso nunca se aplica a él. Un alcance declarado nunca se asume cumplido sin verificación.
 
-Cualquier fallo en 1–8 deniega sin ejecutar nada, siguiendo el mismo principio fail-closed ya verificado en `simulate.mjs`/`check-done-proof.mjs`/`fake-agent.mjs`.
+Cualquier fallo en 1–8 deniega sin ejecutar nada, siguiendo el mismo principio fail-closed ya verificado en `simulate.mjs`/`check-done-proof.mjs`/`fake-agent.mjs`. Estas ocho comprobaciones son de solo lectura; no reservan ni consumen nada por sí mismas.
+
+### Operación durable de admisión (lease, presupuesto y consumo de autorización)
+
+Superadas las comprobaciones 1–8, la admisión no se confirma con una sola escritura: es una **secuencia ordenada con compensación**, nunca tres actualizaciones independientes:
+
+1. **Adquirir lease** en el *Lease Store* para `(task_id, scope_files)`. Se rechaza si existe **cualquier** lease vivo —de esta tarea o de otra, bajo cualquier otra autorización— cuyo `scope_files` se solape con el solicitado, reutilizando el mismo criterio de solapamiento de rutas que `scripts/check-coordination.mjs` ya aplica a las reservas de `docs/HANDOFF.md`, ahora contra el registro operativo real. Esto excluye por tarea **y** por rutas solapadas, incluso entre tareas y autorizaciones distintas.
+2. **Reservar presupuesto** en el *Budget Ledger* de forma atómica. Si falla, se libera de inmediato el lease del paso 1 y se deniega; el paso 1 nunca queda huérfano más allá de esta compensación inmediata.
+3. **Consumir la autorización** en el *Authorization Ledger*, marcándola **irreversiblemente** usada — una autorización consumida nunca vuelve a admitir, sea cual sea el resultado posterior de la invocación. Si este paso falla, se liberan el presupuesto del paso 2 y el lease del paso 1; no se admite nada.
+4. Solo si 1–3 quedan confirmados de forma durable, el `Admission Validator` devuelve `admitted` y autoriza **una única** invocación del ejecutor.
+
+Cada compensación es idempotente y segura de repetir, y libera únicamente lo que ella misma adquirió. El orden (lease → presupuesto → autorización) es deliberado: la exclusión por tarea/rutas es la primera barrera, antes de comprometer presupuesto o consumir la autorización de un solo uso.
+
+**Comportamiento ante fallos entre pasos, concurrencia y reinicio:**
+
+| Momento del fallo/caída | Estado resultante | Acción exigida |
+|---|---|---|
+| Entre adquirir lease (1) y reservar presupuesto (2) | Lease huérfano; sin presupuesto ni autorización consumida | Un barrido de reconciliación libera el lease tras un plazo; ninguna invocación ocurrió |
+| Entre reservar presupuesto (2) y consumir autorización (3) | Lease y presupuesto reservados; autorización intacta | Se liberan ambos; ninguna invocación ocurrió; la autorización sigue disponible solo para un reintento **manual** del propietario, nunca automático |
+| Después de consumir autorización (3), antes de confirmar el inicio de la invocación | Autorización ya irreversiblemente consumida; invocación sin confirmar | Estado `unknown_outcome` (secciones 4 y 8); nunca se trata como éxito ni como "libre para reintentar"; exige reconciliación y una **autorización nueva**, nunca la reutilización de la ya consumida |
+| Dos solicitudes concurrentes para la misma tarea, o para tareas distintas con `scope_files` solapados | La segunda falla en el paso 1 (lease ya adquirido) | Como máximo una secuencia 1–4 completa a la vez; la segunda se deniega sin tocar presupuesto ni autorización |
+| Reinicio del proceso admisor tras una caída, con lease/presupuesto/autorización en cualquier estado parcial | No se reanuda automáticamente ningún paso | El barrido de reconciliación decide liberar o marcar `unknown_outcome`; reiniciar el proceso nunca equivale a reintentar la tarea |
+
+No hay doble ejecución porque el consumo irreversible de la autorización (paso 3) ocurre dentro de la misma secuencia que adquiere el lease exclusivo del paso 1; una segunda llamada —con la misma autorización o con una distinta cuyo alcance se solape— nunca alcanza el paso 3 dos veces. No hay liberación insegura porque cada compensación es específica del paso alcanzado y nunca libera un lease o presupuesto que no adquirió ella misma.
 
 ## 6. Permisos y credenciales (diseño, sin provisión)
 
-- Un único proveedor/método de autenticación oficial por decidir (sección 11); sin asumir que una suscripción personal (Plus/Pro) incluye acceso de API, como ya advierten `AUTOPILOT.md` y `docs/autopilot/ACTIVATION-READINESS.md`.
-- `GITHUB_TOKEN`/credencial del ejecutor: sin permisos de administración de reglas de protección, sin merge, sin lectura de secretos ajenos a su tarea.
-- Credencial del *Publisher* separada de la del ejecutor; solo el *Publisher* puede crear rama/PR; nunca la misma identidad que ejecutó código no confiable.
+El proceso no confiable (ejecutor) de la futura implementación offline **no recibe ninguna credencial**: ni clave del proveedor de IA, ni acceso al *Authorization Ledger*, ni al *Budget Ledger*, ni la credencial del *Publisher*, ni un `GITHUB_TOKEN` de ningún alcance, por mínimo que sea. Esta entrega no provisiona, transmite ni menciona ningún secreto real; lo siguiente es únicamente el reparto de custodia propuesto para una implementación futura, sin seleccionar ni provisionar nada:
+
+- **Authorization Ledger**: custodiado por un componente confiable fuera del checkout del ejecutor; su mecanismo concreto de acceso/custodia es una decisión pendiente (sección 11). El ejecutor nunca lee ni escribe este registro directamente.
+- **Budget Ledger**: custodiado por un componente confiable separado del anterior; la reserva/liberación la realiza ese componente, nunca el ejecutor.
+- **Publisher**: el único componente con credencial de escritura a GitHub (para crear la rama/PR de salida). Recibe del ejecutor exclusivamente **datos** (el diff/los archivos producidos), nunca una credencial, y no comparte la suya con el ejecutor en ningún sentido.
+- **Invocación al proveedor**: si la herramienta oficial elegida (sección 11) requiere una clave para invocar al modelo, esa clave la posee un componente de invocación confiable, distinto del proceso que luego ejecuta los comandos no confiables producidos por el agente. **Advertencia de diseño explícita**: varias herramientas oficiales de agentes de código ejecutan comandos en el mismo proceso que posee la credencial del proveedor; si la herramienta elegida tiene ese patrón, la separación exigida aquí **no queda garantizada por el solo hecho de elegirla** — la arquitectura concreta debe demostrar, no suponer, que el subproceso que corre comandos no confiables no puede leer esa credencial (por ejemplo, delegándolo a un sandbox sin la clave en su entorno). Esto es, precisamente, uno de los controles de la sección 14 que ningún mock puede demostrar.
+- Un único proveedor/método de autenticación oficial queda por decidir (sección 11); sin asumir que una suscripción personal (Plus/Pro) incluye acceso de API, como ya advierten `AUTOPILOT.md` y `docs/autopilot/ACTIVATION-READINESS.md`.
 - Acciones de terceros candidatas (`openai/codex-action`, `anthropics/claude-code-action`) deben fijarse por SHA inmutable **ambas por igual** antes de cualquier adopción, como ya exige la puerta G2 de `docs/autopilot/LF-001d-SAFETY-GATES.md`; este diseño no las fija ni las instala.
 - Prohibido `pull_request_target` con checkout de código no confiable, y prohibido disparar por texto de issues/comentarios sin validación fuerte del actor (heredado de `docs/autopilot/PHASE-2-DESIGN.md` §5).
 
@@ -182,22 +209,22 @@ Consolida y hace técnicamente concreta la sección 8 de `docs/specs/LF-001d.md`
 
 Mientras una fila quede sin resolver, LF-001d permanece bloqueado, igual que establece `docs/specs/LF-001d.md` §8.
 
-## 12. Criterios de aceptación de una futura implementación (no de este diseño)
+## 12. Correspondencia requisito → caso de prueba → resultado esperado (complementa, no reemplaza, la matriz de `docs/specs/LF-001d.md` §6)
 
-| Caso | Resultado exigido |
-|---|---|
-| Autorización ausente, vencida, revocada o reutilizada | Denegado antes de cualquier invocación |
-| `spec_sha256` no coincide con el contenido real en `base_sha` | Denegado |
-| Dependencia sin prueba Git de `done` | Denegado |
-| Presupuesto nulo/cero/agotado o costo desconocido | Denegado; sin reserva no hay admisión |
-| Dos autorizaciones o reintentos concurrentes para la misma clave de idempotencia | Como máximo una invocación real |
-| Contenido de spec/issue/salida del agente con instrucciones de privilegio | Sin efecto; tratado siempre como dato |
-| Diff con traversal, symlink fuera del checkout, o archivo fuera de `scope_files` | Publicador rechaza sin escribir |
-| PAUSA solicitada durante `running` | Sin nuevas admisiones; evidencia conservada; reanudación exige nueva autorización |
-| Entrega completa sin conexión real (modo mock) | Resultado explícitamente `mode:"simulation-only"` o equivalente, nunca inferido como aprobación operativa |
-| Único ensayo real autorizado | Logs, consumo, diff, SHA y PR verificables; revisor distinto; merge solo con autorización del propietario |
+Esta tabla **complementa** la matriz de aceptación futura de la sección 6 de `docs/specs/LF-001d.md`; no la sustituye ni reduce ninguno de sus requisitos. Cada fila traza un requisito de esa matriz hacia el caso de prueba offline previsto en la sección 13 de este documento (mocks, no pruebas ejecutadas) y hacia el resultado que esa prueba, de implementarse, debería exigir. Las dos matrices deben seguir satisfaciéndose juntas; ninguna de las dos está satisfecha todavía, ni esta entrega ejecuta ninguna de las pruebas que describe.
 
-Esta tabla reemplaza, para una implementación real, a la matriz de la sección 6 de `docs/specs/LF-001d.md`; ninguna de las dos está satisfecha todavía.
+| Requisito (matriz `docs/specs/LF-001d.md` §6) | Caso de prueba offline previsto (sección 13) | Resultado esperado |
+|---|---|---|
+| Actor impostor, aprobación editable, **revocación**, vencimiento o reutilización de la autorización | *Authorization Ledger* mock: autorización vencida, revocada, reutilizada, `owner_identity_proof_fake` que falla un verificador simulado | Denegado antes de cualquier invocación; cero dispatch; sin exposición de credenciales |
+| Spec ausente/modificada, **base obsoleta**, **decisiones pendientes** (dependencia sin `done`), **reserva ajena** | *Authorization Ledger* mock: `spec_sha256` no coincide; fixture de dependencia sin prueba Git de `done`; *Lease Store* mock: lease vivo de otra tarea o autorización con `scope_files` solapado | Denegado; razón reportada sin valores sensibles; prueba negativa individual por cada causa |
+| **Costo desconocido**, límite ausente, cero o agotado | *Budget Ledger* mock: `hard_limit_cents` nulo/0/negativo; costo "observado" desconocido tras una ejecución simulada; reconciliación con discrepancia | Denegado; sin reserva exitosa no hay admisión; costo desconocido se reporta como incertidumbre, nunca como cero |
+| Dos solicitudes simultáneas o reinicio tras envío | *Lease Store* mock: adquisición concurrente simulada; "caída" a mitad de ejecución seguida de intento de reanudar sin reconciliar | Como máximo una invocación real; autorización consumida durablemente; resultado incierto bloquea nuevas invocaciones |
+| Inyección en spec, issue o salida; lectura de secretos/red no permitida | *Executor sandbox* mock: cero intentos de resolución de red registrados; cero variables con forma de credencial expuestas; texto de inyección de prompt en la salida del "agente" | Sin efecto; contenido tratado siempre como dato, nunca como instrucción ni como prueba de autorización |
+| Traversal, symlink, archivo fuera de alcance, modificación de controles | *Publisher* mock: `../`, symlink fuera del checkout, archivo fuera de `scope_files`, intento de tocar `.github/workflows/`, `docs/DECISIONS.md` o `docs/autopilot/BACKLOG.json` | Rechazado sin escritura privilegiada ni ejecución del artifact entregado |
+| **Timeout**, cancelación, **respuesta parcial** y coste no informado | *Lease Store* mock de caída a mitad de ejecución (correspondencia con `unknown_outcome`, sección 4/8); *Pause controller* mock: ninguna admisión nueva tras pausa, reanudar sin nueva autorización falla | Estado `unknown_outcome` o `paused`; **recuperación sin reintento automático**; nunca declaración de éxito o de costo cero sin confirmar |
+| Entrega válida sin conexión | Conjunto completo de mocks de la sección 13 (ningún componente real) | Resultado explícitamente `mode:"simulation-only"` o equivalente; diff esperado; ninguna aprobación operativa inferida |
+| Único ensayo real, solo tras autorización separada | Ninguno: queda fuera del alcance de los mocks offline; corresponde a la lista de controles no demostrables de la sección 14 | No se diseña aquí una prueba offline sustitutiva; exige entorno y autorización reales, en un PR separado |
+| Revisión y cierre | *Reviewer gate* mock: autorrevisión, revisor que no coincide con el SHA revisado, aprobación sin bandera `simulated`/equivalente real | Rechazado; revisor distinto del ejecutor exigido; cierre solo con prueba Git real de merge |
 
 ## 13. Plan de pruebas offline con mocks/fixtures
 
@@ -205,9 +232,9 @@ Cada mock es puro, determinista y sin red, siguiendo el mismo estilo que `tests/
 
 | Componente | Mock propuesto | Casos de prueba offline |
 |---|---|---|
-| *Authorization Ledger* | Fixture JSON con `{authorization_id, owner_identity_proof_fake, task_id, spec_sha256, scope_files, expires_at, max_attempts}` | Válida; vencida; revocada; reutilizada; `owner_identity_proof_fake` que falla un verificador simulado (actor impostor); `spec_sha256` no coincide |
-| *Budget Ledger* | Ledger en memoria con reserva/liberación atómica | Reserva concurrente de dos llamadas simultáneas simuladas (una debe fallar); `hard_limit_cents` nulo/0/negativo; costo "observado" desconocido tras una ejecución simulada; reconciliación con discrepancia |
-| *Lease Store* | Mapa en memoria con `acquire`/`release` | Clave duplicada; adquisición concurrente simulada; "caída" a mitad de ejecución seguida de intento de reanudar sin reconciliar (debe rechazarse) |
+| *Authorization Ledger* | Fixture JSON con `{authorization_id, owner_identity_proof_fake, task_id, spec_sha256, scope_files, expires_at, max_attempts}` | Válida; vencida; revocada; reutilizada; `owner_identity_proof_fake` que falla un verificador simulado (actor impostor); `spec_sha256` no coincide; **consumo simulado que falla tras un lease y presupuesto ya reservados** (debe liberar ambos, sección 5, paso 3); intento de reutilizar una autorización ya marcada consumida |
+| *Budget Ledger* | Ledger en memoria con reserva/liberación atómica | Reserva concurrente de dos llamadas simultáneas simuladas (una debe fallar); `hard_limit_cents` nulo/0/negativo; costo "observado" desconocido tras una ejecución simulada; reconciliación con discrepancia; **reserva simulada que falla tras un lease ya adquirido** (debe liberar el lease, sección 5, paso 2) |
+| *Lease Store* | Mapa en memoria con `acquire`/`release` que indexa por `task_id` y por `scope_files` | Clave duplicada por `task_id`; **solicitud de una tarea y autorización distintas cuyo `scope_files` se solapa con un lease vivo de otra** (debe rechazarse igual que la misma tarea, sección 5, paso 1); adquisición concurrente simulada para la misma tarea o para rutas solapadas (como máximo una debe obtener el lease); "caída" simulada entre adquirir el lease y reservar presupuesto, y entre reservar presupuesto y consumir la autorización, seguida de un intento de reanudar sin reconciliar (debe rechazarse en ambos casos, nunca reintentar automáticamente); reinicio simulado del proceso admisor con lease/presupuesto/autorización en estado parcial (debe resolver a liberación o a `unknown_outcome`, nunca a reanudación automática) |
 | *Executor sandbox* | Proceso falso que registra si intentó resolver un host de red o leer una variable con forma de secreto en un entorno simulado | Cero intentos de red registrados; cero variables con forma de credencial expuestas; salida del "agente" con texto de inyección de prompt tratada solo como dato, nunca como instrucción |
 | *Publisher* | Escritor de Git falso con validación de rutas (reutiliza el patrón `validFile`/lista blanca de `fake-agent.mjs`) | Traversal (`../`), symlink fuera del checkout, archivo fuera de `scope_files`, intento de tocar `.github/workflows/`, `docs/DECISIONS.md` o `docs/autopilot/BACKLOG.json`, diff de tamaño desproporcionado |
 | *Reviewer gate* | Igual que `review.agent !== lease.reviewer` en `fake-agent.mjs` | Autorrevisión; revisor que no coincide con el SHA revisado; aprobación sin bandera `simulated`/equivalente real |
