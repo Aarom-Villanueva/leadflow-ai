@@ -250,7 +250,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-017",
       "owner": "ChatGPT",
       "branch": "planning/lf-017-lf-001d-spec",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -258,6 +258,24 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "docs/specs/LF-017.md",
         "docs/specs/LF-001d.md",
         "docs/autopilot/LF-001d-SAFETY-GATES.md"
+      ],
+      "completion": {
+        "head_sha": "f9ebf7fb1b2a6cbb2f656e068bb5de6c681affa7",
+        "merge_sha": "7498c1849c76f2e661a266ec87fcb7eead70c905"
+      }
+    },
+    {
+      "id": "LF-018",
+      "owner": "Claude",
+      "branch": "design/lf-018-lf-001d-offline-design",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001d.md",
+        "docs/specs/LF-017.md",
+        "docs/specs/LF-018.md",
+        "docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md"
       ]
     }
   ]
@@ -383,3 +401,21 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Validación local, candidato y CI: se registrarán en el PR con comandos y resultados reales. No declarar CI ni revisión aprobadas antes de observarlas.
 - Riesgos: diseño no implementado, identidad/custodia/presupuesto/aislamiento pendientes. No seleccionar proveedor ni convertir una simulación en evidencia operativa.
 - Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente del SHA exacto y autorización nueva de merge. La reserva LF-017 permanece active hasta integración comprobada.
+
+## LF-017 — cierre verificado
+
+- PR #13 fusionado en `main` el 2026-11-06, con autorización expresa del propietario (método `merge`, `expectedHeadSha` fijado al candidato auditado, sin auto-merge). Head auditado: `f9ebf7fb1b2a6cbb2f656e068bb5de6c681affa7`; merge: `7498c1849c76f2e661a266ec87fcb7eead70c905`.
+- Ambos checks obligatorios en el estado correcto (`Coordination gate` success, `Foundation verification` skipped por `foundation=false`) en el head exacto, verificado antes del merge contra la API de GitHub; `main` sin atraso respecto a la base del PR, sin conflictos.
+- Reserva LF-017 pasa a `completed` con evidencia de padres y ancestría del merge, verificable por `Coordination gate`, no por una marca unilateral.
+
+## LF-018 — diseño técnico offline de implementación de LF-001d
+
+- Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto de Claude; esta entrega no puede autorrevisarse.
+- Rama: `design/lf-018-lf-001d-offline-design`. Base: `7498c1849c76f2e661a266ec87fcb7eead70c905` (merge PR #13).
+- Alcance: resolver el paso 2 de la sección 2 de `docs/specs/LF-001d.md` con `docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md` — componentes, fronteras de confianza, contrato `schema_version:3` propuesto (no instalado), estados, autorización, presupuesto, idempotencia, pausa/recuperación, archivos previstos (no creados), decisiones pendientes, criterios de aceptación futuros y plan de pruebas offline con mocks/fixtures, incluyendo qué controles no pueden demostrarse sin un entorno real. Contrato de esta tarea en `docs/specs/LF-018.md`.
+- Sin código, scripts, tests, workflows ni dependencias nuevas. `docs/autopilot/BACKLOG.json` intacto: `execution_enabled=false`; `LF-002a`/`LF-002`/`LF-003` siguen `blocked`. Sin credenciales, proveedores, presupuesto distinto de cero, agentes reales ni despliegues.
+- Validación local, candidato y CI: se registrarán en el PR con comandos y resultados reales. No declarar CI ni revisión aprobadas antes de observarlas.
+- Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente (no por Claude) del SHA exacto, y autorización nueva y separada del propietario antes de cualquier propuesta de implementación real.
+- **Corrección post-revisión (misma rama, mismo PR en borrador):** una revisión independiente del candidato `aeaec590d24cbd90df9a4132c21d99c7b8acd801` señaló tres hallazgos documentales sobre `docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md`: (1) la admisión necesitaba una operación durable concreta que encadenara lease, presupuesto y consumo de autorización con comportamiento explícito ante fallos entre pasos, concurrencia y reinicio, y exclusión por tarea y por rutas solapadas entre tareas/autorizaciones distintas; (2) persistía una ambigüedad entre "ejecutor sin secretos" y "credencial del ejecutor"; (3) la sección 12 afirmaba reemplazar la matriz de `docs/specs/LF-001d.md` §6 en vez de complementarla. Los tres se resolvieron exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido (`3f6f4379a734afd9e0452dbfb29eebbf13fa87be`) requirió otra revisión independiente antes de cualquier autorización o fusión.
+- **Segunda corrección post-revisión (misma rama, mismo PR en borrador):** una nueva revisión independiente de ese candidato señaló dos hallazgos adicionales: (1) **recuperación segura** — el diseño liberaba leases solo por el transcurso de un plazo, sin invalidar al proceso anterior ni distinguir un rechazo confirmado de un resultado desconocido por respuesta perdida; se añadió un mecanismo de fencing (token de epoch que se invalida antes de liberar o reasignar), la distinción explícita entre rechazo confirmado y `unknown_outcome`, la regla de conservar lease y presupuesto cuando el consumo de la autorización pudo haberse guardado, y los casos de proceso demorado y de respuesta perdida tras guardar el consumo; (2) **pruebas independientes** — la matriz y el plan de pruebas combinaban en una sola fila "base obsoleta", "spec modificada", "decisión pendiente", "dependencia no completada" y "reserva ajena"; se separaron en cinco casos negativos independientes (nuevo componente `Admission Validator` en la sección 13 y cinco pasos distintos 3–7 en la secuencia de validación de la sección 5), cada uno con el resto de condiciones válidas, dejando explícito que una base obsoleta deniega aunque el hash de la spec siga coincidiendo. Ambos hallazgos se resolvieron exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido (`cfa7fe84b5d0fd76e9c6fded739b0ba14b7c4865`) requirió otra revisión independiente antes de cualquier autorización o fusión.
+- **Tercera corrección post-revisión (misma rama, mismo PR en borrador):** una nueva revisión independiente de ese candidato señaló que el fencing protegía las escrituras en los registros y en el `Publisher`, pero no el inicio de la invocación real al proveedor. Se añadió el componente confiable `Provider invocation` (secciones 1 y 2) y una subsección dedicada en la sección 5 que exige: rechazar tokens de fencing invalidados antes de enviar; coordinar el inicio con la invalidación/recuperación mediante una única escritura condicional contra el `Lease Store` (sin ventana entre comprobar y enviar); registrar durablemente el intento único como parte de esa misma escritura, antes del envío real; y, ante incertidumbre sobre si el envío llegó a salir, conservar lease/presupuesto/autorización como `unknown_outcome`, sin reintento automático, exigiendo reconciliación. Se añadieron al plan de pruebas offline (sección 13, nuevo mock `Provider invocation`) los tres escenarios exigidos —proceso demorado con token invalidado (cero envíos), invalidación e inicio concurrentes (resultado definido, sin doble envío ni liberación insegura), y respuesta perdida tras el envío (`unknown_outcome` con reservas conservadas)— sin implementarlos. Se revisaron y actualizaron las afirmaciones de "sin doble ejecución" de la sección 5 para que cubran explícitamente el envío real, no solo las escrituras de los registros. Resuelto exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido requiere otra revisión independiente antes de cualquier autorización o fusión.
