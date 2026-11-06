@@ -1,0 +1,33 @@
+{
+  "authorization": {
+    "authorizationId": "AUTH-0001",
+    "taskId": "LF-099",
+    "specSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "scopeFiles": ["docs/specs/LF-099.md"],
+    "expiresAt": 2000000000,
+    "maxAttempts": 1,
+    "ownerIdentityProofFake": "OWNER-PROOF-FAKE:AUTH-0001",
+    "revoked": false
+  },
+  "request": {
+    "taskId": "LF-099",
+    "authorizationId": "AUTH-0001",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "specSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "scopeFiles": ["docs/specs/LF-099.md"],
+    "estimatedCostCents": 0
+  },
+  "sources": {
+    "currentBaseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "specShaAtBase": "1111111111111111111111111111111111111111111111111111111111111111",
+    "requiredDecisions": [],
+    "approvedDecisions": [],
+    "dependencies": [],
+    "roadmapPlannedFiles": ["docs/specs/LF-099.md"],
+    "ownHandoffFiles": ["docs/specs/LF-099.md"],
+    "foreignHandoffReservations": [],
+    "effectivePermissions": [],
+    "minimumRequiredPermissions": []
+  },
+  "now": 1000000000
+}

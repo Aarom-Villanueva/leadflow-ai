@@ -268,7 +268,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-018",
       "owner": "Claude",
       "branch": "design/lf-018-lf-001d-offline-design",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -276,6 +276,29 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "docs/specs/LF-017.md",
         "docs/specs/LF-018.md",
         "docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md"
+      ],
+      "completion": {
+        "head_sha": "4c2459a9a1891ab696398d02d0e9890527371489",
+        "merge_sha": "28ad9735d7d7d0fa439d69c1a14fb0ab95eebf28"
+      }
+    },
+    {
+      "id": "LF-019",
+      "owner": "Claude",
+      "branch": "impl/lf-019-lf-001d-offline-controls",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001d.md",
+        "docs/specs/LF-019.md",
+        "docs/autopilot/fixtures/lf-001d/baseline.json",
+        "scripts/autopilot/authorization-ledger.mjs",
+        "scripts/autopilot/budget-ledger.mjs",
+        "scripts/autopilot/lease-store.mjs",
+        "scripts/autopilot/admission-validator.mjs",
+        "scripts/autopilot/provider-invocation.mjs",
+        "tests/coordination/lf-001d-design.test.mjs"
       ]
     }
   ]
@@ -418,4 +441,16 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente (no por Claude) del SHA exacto, y autorización nueva y separada del propietario antes de cualquier propuesta de implementación real.
 - **Corrección post-revisión (misma rama, mismo PR en borrador):** una revisión independiente del candidato `aeaec590d24cbd90df9a4132c21d99c7b8acd801` señaló tres hallazgos documentales sobre `docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md`: (1) la admisión necesitaba una operación durable concreta que encadenara lease, presupuesto y consumo de autorización con comportamiento explícito ante fallos entre pasos, concurrencia y reinicio, y exclusión por tarea y por rutas solapadas entre tareas/autorizaciones distintas; (2) persistía una ambigüedad entre "ejecutor sin secretos" y "credencial del ejecutor"; (3) la sección 12 afirmaba reemplazar la matriz de `docs/specs/LF-001d.md` §6 en vez de complementarla. Los tres se resolvieron exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido (`3f6f4379a734afd9e0452dbfb29eebbf13fa87be`) requirió otra revisión independiente antes de cualquier autorización o fusión.
 - **Segunda corrección post-revisión (misma rama, mismo PR en borrador):** una nueva revisión independiente de ese candidato señaló dos hallazgos adicionales: (1) **recuperación segura** — el diseño liberaba leases solo por el transcurso de un plazo, sin invalidar al proceso anterior ni distinguir un rechazo confirmado de un resultado desconocido por respuesta perdida; se añadió un mecanismo de fencing (token de epoch que se invalida antes de liberar o reasignar), la distinción explícita entre rechazo confirmado y `unknown_outcome`, la regla de conservar lease y presupuesto cuando el consumo de la autorización pudo haberse guardado, y los casos de proceso demorado y de respuesta perdida tras guardar el consumo; (2) **pruebas independientes** — la matriz y el plan de pruebas combinaban en una sola fila "base obsoleta", "spec modificada", "decisión pendiente", "dependencia no completada" y "reserva ajena"; se separaron en cinco casos negativos independientes (nuevo componente `Admission Validator` en la sección 13 y cinco pasos distintos 3–7 en la secuencia de validación de la sección 5), cada uno con el resto de condiciones válidas, dejando explícito que una base obsoleta deniega aunque el hash de la spec siga coincidiendo. Ambos hallazgos se resolvieron exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido (`cfa7fe84b5d0fd76e9c6fded739b0ba14b7c4865`) requirió otra revisión independiente antes de cualquier autorización o fusión.
-- **Tercera corrección post-revisión (misma rama, mismo PR en borrador):** una nueva revisión independiente de ese candidato señaló que el fencing protegía las escrituras en los registros y en el `Publisher`, pero no el inicio de la invocación real al proveedor. Se añadió el componente confiable `Provider invocation` (secciones 1 y 2) y una subsección dedicada en la sección 5 que exige: rechazar tokens de fencing invalidados antes de enviar; coordinar el inicio con la invalidación/recuperación mediante una única escritura condicional contra el `Lease Store` (sin ventana entre comprobar y enviar); registrar durablemente el intento único como parte de esa misma escritura, antes del envío real; y, ante incertidumbre sobre si el envío llegó a salir, conservar lease/presupuesto/autorización como `unknown_outcome`, sin reintento automático, exigiendo reconciliación. Se añadieron al plan de pruebas offline (sección 13, nuevo mock `Provider invocation`) los tres escenarios exigidos —proceso demorado con token invalidado (cero envíos), invalidación e inicio concurrentes (resultado definido, sin doble envío ni liberación insegura), y respuesta perdida tras el envío (`unknown_outcome` con reservas conservadas)— sin implementarlos. Se revisaron y actualizaron las afirmaciones de "sin doble ejecución" de la sección 5 para que cubran explícitamente el envío real, no solo las escrituras de los registros. Resuelto exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido requiere otra revisión independiente antes de cualquier autorización o fusión.
+- **Tercera corrección post-revisión (misma rama, mismo PR en borrador):** una nueva revisión independiente de ese candidato señaló que el fencing protegía las escrituras en los registros y en el `Publisher`, pero no el inicio de la invocación real al proveedor. Se añadió el componente confiable `Provider invocation` (secciones 1 y 2) y una subsección dedicada en la sección 5 que exige: rechazar tokens de fencing invalidados antes de enviar; coordinar el inicio con la invalidación/recuperación mediante una única escritura condicional contra el `Lease Store` (sin ventana entre comprobar y enviar); registrar durablemente el intento único como parte de esa misma escritura, antes del envío real; y, ante incertidumbre sobre si el envío llegó a salir, conservar lease/presupuesto/autorización como `unknown_outcome`, sin reintento automático, exigiendo reconciliación. Se añadieron al plan de pruebas offline (sección 13, nuevo mock `Provider invocation`) los tres escenarios exigidos —proceso demorado con token invalidado (cero envíos), invalidación e inicio concurrentes (resultado definido, sin doble envío ni liberación insegura), y respuesta perdida tras el envío (`unknown_outcome` con reservas conservadas)— sin implementarlos. Se revisaron y actualizaron las afirmaciones de "sin doble ejecución" de la sección 5 para que cubran explícitamente el envío real, no solo las escrituras de los registros. Resuelto exclusivamente en documentación, sin tocar código, tests, scripts, workflows ni dependencias, y sin alterar `docs/autopilot/BACKLOG.json`. El candidato corregido (`4c2459a9a1891ab696398d02d0e9890527371489`) requirió otra revisión independiente antes de cualquier autorización o fusión.
+- **Cierre verificado:** PR #14 fusionado en `main` el 2026-11-06 por el propietario (`merged_by: Aarom-Villanueva`). Head auditado: `4c2459a9a1891ab696398d02d0e9890527371489`; merge: `28ad9735d7d7d0fa439d69c1a14fb0ab95eebf28`. Padres del merge: `7498c1849c76f2e661a266ec87fcb7eead70c905` (primero) y `4c2459a9a1891ab696398d02d0e9890527371489` (segundo); `4c2459a9...` es ancestro de `main`; el subject del merge menciona LF-018 — las tres condiciones de `verifiedMergeReleases`. Reserva LF-018 pasa a `completed` con esta evidencia, no por una marca unilateral. LF-019 retoma la implementación offline sobre esta base.
+
+## LF-019 — implementación offline (mocks/fixtures) de admisión, autorización, presupuesto, leases e invocación simulada
+
+- Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto de Claude; esta entrega no puede autorrevisarse.
+- Rama: `impl/lf-019-lf-001d-offline-controls`. Base: `28ad9735d7d7d0fa439d69c1a14fb0ab95eebf28` (merge PR #14).
+- Autorización expresa del propietario: comenzar la implementación offline de LF-001d conforme al diseño integrado en PR #14, limitada a código y pruebas locales con mocks; sin ejecutar otros agentes, conectar APIs/proveedores reales, introducir credenciales, generar gastos, activar servicios, desplegar, ni modificar workflows o dependencias.
+- Alcance: `scripts/autopilot/lease-store.mjs` (fencing, escritura condicional atómica de registro de intento), `scripts/autopilot/budget-ledger.mjs`, `scripts/autopilot/authorization-ledger.mjs` (consumo irreversible; identidad del propietario verificada por `verifyOwnerIdentityFake`, explícitamente sintética), `scripts/autopilot/admission-validator.mjs` (las diez comprobaciones de solo lectura de la sección 5, la operación durable con compensación, y la reconciliación de `unknown_outcome`) y `scripts/autopilot/provider-invocation.mjs` (invocación simulada con `send` siempre local). Pruebas offline en `tests/coordination/lf-001d-design.test.mjs`. Contrato de esta tarea en `docs/specs/LF-019.md`.
+- No implementa Executor sandbox, Publisher, Reviewer gate ni Pause controller. `docs/autopilot/BACKLOG.json` intacto: `execution_enabled=false`; `LF-002a`/`LF-002`/`LF-003` siguen `blocked`. Sin credenciales, proveedores reales, presupuesto distinto de cero, agentes reales ni despliegues.
+- Validación local real: `node --test tests/coordination/*.test.mjs` 129/129 (90 preexistentes + 39 nuevas), `npm run lint`, `npm run typecheck`, `npm test` (vitest 9 + coordinación 129) y `npm run build` limpios; `npm run test:e2e` 6/6 con Chromium preinstalado. Candidato y CI remotos se registrarán en el PR con comandos y resultados reales.
+- Como el diff incluye código fuera de `docs/`, `foundation=true`: `Foundation verification` (lint/typecheck/test/build/e2e) se ejecuta, no se omite.
+- Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente (no por Claude) del SHA exacto, y autorización nueva y separada del propietario antes de extender a Executor sandbox/Publisher/Reviewer gate/Pause controller o de cualquier ensayo con un proveedor real.
