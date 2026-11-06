@@ -809,6 +809,165 @@ test('regression: send() returning an incompatible thenable (not a real Promise)
   assert.equal(sends, 1, 'no second send');
 });
 
+// ---------------------------------------------------------------------------
+// Regression: responseLost must unify result/error handling with the normal
+// path. The old code called send() inside responseLost and discarded its
+// return value entirely, so a rejected promise returned there was never
+// given a handler and became an unhandled rejection.
+// ---------------------------------------------------------------------------
+
+test('regression: exact reproduction — responseLost combined with a rejected promise must not produce an unhandled rejection', async () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  let unhandled = false;
+  const onUnhandled = () => { unhandled = true; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const result = invokeProvider({
+      leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, responseLost: true,
+      send: () => { sends++; return Promise.reject(new Error('simulated async failure with a sensitive detail')); },
+    });
+    assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+    await flushAsync();
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal(unhandled, false, 'the eventual rejection must never surface as an unhandled rejection even with responseLost');
+  assert.equal(sends, 1, 'send() is called exactly once, never again to inspect its result');
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+test('regression: responseLost combined with a resolved promise is handled the same way as the normal path', async () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  let unhandled = false;
+  const onUnhandled = () => { unhandled = true; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const result = invokeProvider({
+      leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, responseLost: true,
+      send: () => { sends++; return Promise.resolve({ ok: true }); },
+    });
+    assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+    await flushAsync();
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal(unhandled, false);
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+test('regression: responseLost combined with an incompatible thenable is still handled uniformly', async () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  const weirdThenable = { then: (resolve) => { resolve('x'); } };
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, responseLost: true,
+    send: () => { sends++; return weirdThenable; },
+  });
+  assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+  await flushAsync();
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+test('regression: responseLost combined with a synchronous exception stays consistent with the unified handling', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, responseLost: true,
+    send: () => { sends++; throw new Error('simulated timeout with a sensitive detail'); },
+  });
+  assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+// ---------------------------------------------------------------------------
+// Regression: the budget precondition (a valid ledger with a pending
+// reservation bound to this exact task_id/fenceToken) must be checked before
+// the Lease Store is touched or send() is called at all — never discovered
+// to be missing only after the fact.
+// ---------------------------------------------------------------------------
+
+test('regression: a missing or invalid budgetLedger denies before touching the lease or calling send()', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget();
+  let sends = 0;
+  for (const badLedger of [undefined, null, {}, { inspect: 'not-a-function' }, { inspect: () => { throw new Error('boom'); } }]) {
+    const result = invokeProvider({ leaseStore, budgetLedger: badLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+    assert.deepEqual(result, { outcome: 'denied', reason: 'budget_precondition_failed', sent: false });
+  }
+  assert.equal(sends, 0, 'zero sends while the precondition is rejected');
+  assert.equal(leaseStore.inspect(taskId).attemptRegistered, false, 'the attempt was never registered');
+  // The real, valid ledger still works normally afterward: nothing was corrupted by the rejections.
+  const real = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; return { ok: true }; } });
+  assert.equal(real.outcome, 'sent');
+  assert.equal(sends, 1);
+});
+
+test('regression: no pending reservation at all for this task denies before touching the lease or calling send()', () => {
+  const leaseStore = new LeaseStore();
+  const budgetLedger = new BudgetLedger({ hardLimitCents: 100 }); // nothing reserved for any task
+  const lease = leaseStore.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  let sends = 0;
+  const result = invokeProvider({ leaseStore, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.deepEqual(result, { outcome: 'denied', reason: 'budget_precondition_failed', sent: false });
+  assert.equal(sends, 0);
+  assert.equal(leaseStore.inspect('LF-100').attemptRegistered, false);
+});
+
+test('regression: a reservation bound to a different fencing token denies before touching the lease or calling send()', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget();
+  let sends = 0;
+  const result = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken + 1000, send: () => { sends++; } });
+  assert.deepEqual(result, { outcome: 'denied', reason: 'budget_precondition_failed', sent: false });
+  assert.equal(sends, 0);
+  assert.equal(leaseStore.inspect(taskId).attemptRegistered, false);
+});
+
+test('regression: a reservation already finalized with a real observed cost denies before touching the lease or calling send()', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  const finalized = budgetLedger.recordObservedCost({ taskId, fenceToken: lease.fenceToken, costCentsOrUnknown: 100 });
+  assert.equal(finalized.ok, true);
+  let sends = 0;
+  const result = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.deepEqual(result, { outcome: 'denied', reason: 'budget_precondition_failed', sent: false });
+  assert.equal(sends, 0);
+  assert.equal(leaseStore.inspect(taskId).attemptRegistered, false);
+});
+
+test('regression: an unexpected failure blocking the budget after send() is a distinct, conservative outcome — never the confirmed unknown_outcome', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken,
+    send: () => {
+      sends++;
+      // Simulates something external finalizing the reservation with a real number during the send
+      // window, so the automatic block attempted afterward finds nothing left to reconcile.
+      budgetLedger.recordObservedCost({ taskId, fenceToken: lease.fenceToken, costCentsOrUnknown: 100 });
+      throw new Error('simulated provider failure with a sensitive detail');
+    },
+  });
+  assert.deepEqual(result, { outcome: 'unknown_outcome_budget_unconfirmed', sent: 'unknown' });
+  assert.equal(JSON.stringify(result).toLowerCase().includes('sensitive'), false, 'the real error is never exposed');
+  assert.equal(sends, 1);
+  // The lease stays blocked regardless of whether the budget block itself could be confirmed.
+  assert.deepEqual(leaseStore.invalidate({ taskId, fenceToken: lease.fenceToken }), { confirmed: true, ok: false, reason: 'attempt_already_registered' });
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.deepEqual(secondAttempt, { outcome: 'denied', reason: 'budget_precondition_failed', sent: false });
+  assert.equal(sends, 1, 'no second send');
+});
+
 test('a plain synchronous object result (not thenable) is still declared sent normally', () => {
   const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget();
   let sends = 0;
