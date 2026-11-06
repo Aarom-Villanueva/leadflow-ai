@@ -25,6 +25,21 @@ function freshLedgers({ authorization, hardLimitCents = 1000 } = {}) {
   return { leaseStore, budgetLedger, authorizationLedger };
 }
 
+/** A lease and a matching budget reservation, ready for invokeProvider (which requires both). */
+function acquireLeaseAndBudget({ taskId = 'LF-100', scopeFiles = ['docs/specs/LF-100.md'], hardLimitCents = 1000, estimatedCostCents = 0 } = {}) {
+  const leaseStore = new LeaseStore();
+  const budgetLedger = new BudgetLedger({ hardLimitCents });
+  const lease = leaseStore.acquire({ taskId, scopeFiles });
+  budgetLedger.reserve({ taskId, fenceToken: lease.fenceToken, estimatedCostCents });
+  return { leaseStore, budgetLedger, lease, taskId };
+}
+
+/** Awaits long enough for any pending microtask/macrotask (e.g. a swallowed promise rejection) to settle. */
+async function flushAsync() {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 // ---------------------------------------------------------------------------
 // Lease Store: fencing, overlap exclusivity, confirmed rejection vs unknown_outcome
 // ---------------------------------------------------------------------------
@@ -135,11 +150,10 @@ test('race: attempt registration first makes the competing invalidation fail (ne
 });
 
 test('regression: exact reproduction — responseLost, then release, then a second lease, must not allow a second send', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   let sends = 0;
   const first = invokeProvider({
-    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken,
+    leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken,
     send: () => { sends++; return { ok: true }; }, responseLost: true,
   });
   assert.equal(first.outcome, 'unknown_outcome');
@@ -153,7 +167,7 @@ test('regression: exact reproduction — responseLost, then release, then a seco
   // With the lease still live, a second lease for the same (or any overlapping) scope is rejected.
   const secondLease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
   assert.equal(secondLease.ok, false);
-  const secondAttempt = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  const secondAttempt = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
   assert.equal(secondAttempt.outcome, 'denied');
   assert.equal(sends, 1);
 });
@@ -595,83 +609,214 @@ test('restart of the admission process with a lease held in a known partial stat
 // ---------------------------------------------------------------------------
 
 test('a delayed process whose token was invalidated by recovery sends zero times', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   store.invalidate({ taskId: 'LF-100', fenceToken: lease.fenceToken });
   let sends = 0;
-  const result = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; return { ok: true }; } });
+  const result = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; return { ok: true }; } });
   assert.deepEqual(result, { outcome: 'denied', reason: 'fence_token_invalid', sent: false });
   assert.equal(sends, 0);
 });
 
 test('invalidation first means the competing send attempt is denied: no send, no unsafe release', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   store.invalidate({ taskId: 'LF-100', fenceToken: lease.fenceToken });
   let sends = 0;
-  const result = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  const result = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
   assert.equal(result.outcome, 'denied');
   assert.equal(sends, 0);
 });
 
 test('send attempt first means the competing invalidation fails: exactly one send ever happens', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   let sends = 0;
-  const result = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; return { ok: true }; } });
+  const result = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; return { ok: true }; } });
   const invalidateAfter = store.invalidate({ taskId: 'LF-100', fenceToken: lease.fenceToken });
   assert.equal(result.outcome, 'sent');
   assert.equal(sends, 1);
   assert.deepEqual(invalidateAfter, { confirmed: true, ok: false, reason: 'attempt_already_registered' });
   // A second attempt with the same token can never send again: the attempt is already registered.
-  const again = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  const again = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
   assert.equal(again.outcome, 'denied');
   assert.equal(sends, 1);
 });
 
 test('response lost after the send attempt was already registered: unknown_outcome, never a second send', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   let sends = 0;
   const result = invokeProvider({
-    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken,
+    leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken,
     send: () => { sends++; return { ok: true }; }, responseLost: true,
   });
   assert.deepEqual(result, { outcome: 'unknown_outcome', sent: 'unknown' });
   assert.equal(sends, 1);
-  const retry = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  const retry = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
   assert.equal(retry.outcome, 'denied');
   assert.equal(sends, 1);
 });
 
-test('regression: send() throwing after the attempt was registered is unknown_outcome, never a thrown error, never a second send', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+test('send() throwing after the attempt was registered is unknown_outcome, never a thrown error, never a second send', () => {
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   let sends = 0;
   const result = invokeProvider({
-    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken,
+    leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken,
     send: () => { sends++; throw new Error('simulated provider failure with a sensitive detail'); },
   });
   assert.deepEqual(result, { outcome: 'unknown_outcome', sent: 'unknown' });
   assert.equal(sends, 1);
   assert.equal(JSON.stringify(result).includes('sensitive'), false, 'the real error is never exposed');
-  const retry = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  const retry = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
   assert.equal(retry.outcome, 'denied');
   assert.equal(sends, 1);
 });
 
-test('regression: send() throwing while responseLost is also true stays unknown_outcome, never a thrown error', () => {
-  const store = new LeaseStore();
-  const lease = store.acquire({ taskId: 'LF-100', scopeFiles: ['docs/specs/LF-100.md'] });
+test('send() throwing while responseLost is also true stays unknown_outcome, never a thrown error', () => {
+  const { leaseStore: store, budgetLedger, lease } = acquireLeaseAndBudget();
   let sends = 0;
   const result = invokeProvider({
-    leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, responseLost: true,
+    leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, responseLost: true,
     send: () => { sends++; throw new Error('simulated timeout'); },
   });
   assert.deepEqual(result, { outcome: 'unknown_outcome', sent: 'unknown' });
   assert.equal(sends, 1);
-  const retry = invokeProvider({ leaseStore: store, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
+  const retry = invokeProvider({ leaseStore: store, budgetLedger, taskId: 'LF-100', fenceToken: lease.fenceToken, send: () => { sends++; } });
   assert.equal(retry.outcome, 'denied');
+  assert.equal(sends, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: an uncertain send must automatically block the budget — never a
+// separate step the caller might forget (reproduces the exact scenario: admit
+// with a 100-cent reservation -> send() throws -> unknown_outcome -> the old
+// code let the budget be released and the same 100 cents reserved again).
+// ---------------------------------------------------------------------------
+
+function assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken, result }) {
+  assert.equal(result.outcome, 'unknown_outcome');
+  assert.equal(JSON.stringify(result).toLowerCase().includes('sensitive'), false, 'the real error is never exposed');
+  // The reservation cannot be released, and its saldo cannot be reused: cost_unreconciled, not ok.
+  assert.deepEqual(budgetLedger.release({ taskId, fenceToken }), { confirmed: true, ok: false, reason: 'cost_unreconciled' });
+  // No new reservation is admitted anywhere while this one cost stays unknown.
+  assert.equal(budgetLedger.canReserve(1), false);
+  assert.deepEqual(budgetLedger.reserve({ taskId: 'LF-other-task', fenceToken: 999, estimatedCostCents: 1 }), { confirmed: true, ok: false, reason: 'budget_not_available' });
+  // The lease stays blocked too: invalidate and release both still refuse.
+  assert.deepEqual(leaseStore.invalidate({ taskId, fenceToken }), { confirmed: true, ok: false, reason: 'attempt_already_registered' });
+}
+
+test('regression: exact reproduction — reserve 100, send() throws, unknown_outcome must automatically block the 100, not just mark it', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken,
+    send: () => { sends++; throw new Error('simulated provider failure with a sensitive detail'); },
+  });
+  assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+  // An explicit, synthetic reconciliation afterward still correctly finalizes the confirmed consumption.
+  const reconciled = budgetLedger.recordObservedCost({ taskId, fenceToken: lease.fenceToken, costCentsOrUnknown: 60 });
+  assert.deepEqual(reconciled, { confirmed: true, ok: true, unknown: false, consumedCents: 60 });
+  assert.equal(budgetLedger.inspect(taskId).totalConsumedCents, 60);
+  assert.equal(budgetLedger.canReserve(40), true);
+  assert.equal(budgetLedger.canReserve(41), false);
+});
+
+test('regression: exact reproduction — reserve 100, responseLost, unknown_outcome must automatically block the 100', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, responseLost: true,
+    send: () => { sends++; return { ok: true }; },
+  });
+  assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+  // An explicit, synthetic reconciliation afterward still correctly finalizes the confirmed consumption.
+  const reconciled = budgetLedger.recordObservedCost({ taskId, fenceToken: lease.fenceToken, costCentsOrUnknown: 100 });
+  assert.deepEqual(reconciled, { confirmed: true, ok: true, unknown: false, consumedCents: 100 });
+  assert.equal(budgetLedger.inspect(taskId).totalConsumedCents, 100);
+  assert.equal(budgetLedger.canReserve(1), false);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: an asynchronous result from `send` (unsupported) must never be
+// declared a success, must never crash on an eventual rejection, and must
+// block lease and budget exactly like any other unknown_outcome.
+// ---------------------------------------------------------------------------
+
+test('regression: send() returning a resolved promise is never declared sent; lease and budget stay blocked', async () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  let unhandled = false;
+  const onUnhandled = () => { unhandled = true; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const result = invokeProvider({
+      leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken,
+      send: () => { sends++; return Promise.resolve({ ok: true }); },
+    });
+    assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+    await flushAsync();
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal(unhandled, false);
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+test('regression: send() returning a rejected promise is never declared sent, and its rejection never becomes an unhandled rejection', async () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  let unhandled = false;
+  const onUnhandled = () => { unhandled = true; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const result = invokeProvider({
+      leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken,
+      send: () => { sends++; return Promise.reject(new Error('simulated async failure with a sensitive detail')); },
+    });
+    assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+    await flushAsync();
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal(unhandled, false, 'the eventual rejection must never surface as an unhandled rejection');
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+test('regression: send() returning an incompatible thenable (not a real Promise) is still never declared sent', async () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget({ hardLimitCents: 100, estimatedCostCents: 100 });
+  let sends = 0;
+  const weirdThenable = { then: (resolve) => { resolve('x'); } };
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken,
+    send: () => { sends++; return weirdThenable; },
+  });
+  assertBudgetAutomaticallyBlocked({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, result });
+  await flushAsync();
+  assert.equal(sends, 1);
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken, send: () => { sends++; } });
+  assert.equal(secondAttempt.outcome, 'denied');
+  assert.equal(sends, 1, 'no second send');
+});
+
+test('a plain synchronous object result (not thenable) is still declared sent normally', () => {
+  const { leaseStore, budgetLedger, lease, taskId } = acquireLeaseAndBudget();
+  let sends = 0;
+  const result = invokeProvider({
+    leaseStore, budgetLedger, taskId, fenceToken: lease.fenceToken,
+    send: () => { sends++; return { mode: 'simulation-only', then: 'not-a-function' }; },
+  });
+  assert.equal(result.outcome, 'sent');
   assert.equal(sends, 1);
 });
 
@@ -682,12 +827,12 @@ test('end to end: admission through a single simulated invocation, never a secon
   assert.equal(admission.admitted, true);
   let sends = 0;
   const invocation = invokeProvider({
-    leaseStore, taskId: admission.taskId, fenceToken: admission.fenceToken,
+    leaseStore, budgetLedger, taskId: admission.taskId, fenceToken: admission.fenceToken,
     send: () => { sends++; return { mode: 'simulation-only' }; },
   });
   assert.equal(invocation.outcome, 'sent');
   assert.equal(sends, 1);
-  const secondAttempt = invokeProvider({ leaseStore, taskId: admission.taskId, fenceToken: admission.fenceToken, send: () => { sends++; } });
+  const secondAttempt = invokeProvider({ leaseStore, budgetLedger, taskId: admission.taskId, fenceToken: admission.fenceToken, send: () => { sends++; } });
   assert.equal(secondAttempt.outcome, 'denied');
   assert.equal(sends, 1);
 });
