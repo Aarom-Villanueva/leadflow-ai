@@ -1,6 +1,6 @@
 # LF-016 — Endurecimiento B8 y preparación segura de LF-001d
 
-**Estado:** propuesta pendiente de revisión; este documento no autoriza LF-001d.
+**Estado:** LF-016 integrado por PR #12 el 2026-11-05 tras corrección M2 y segunda auditoría aprobada. Las puertas operativas de LF-001d siguen pendientes; este documento no lo autoriza.
 **Base:** merge del PR #11 en `main`, `eed7f8c21550094965fe7b191a1194216dbce01a`.
 **Alcance:** endurecer el adaptador falso, y definir puertas para el diseño del adaptador real sin ejecutarlo.
 
@@ -40,3 +40,7 @@ Aunque esta validación más estricta reduce accidentes en fixtures sintéticos,
 ## Auditoría M2: decisión de diseño
 
 La primera versión de LF-016 utilizó una lista cerrada de palabras clave y la auditoría independiente de Claude demostró nueve formas de introducir credenciales plausibles sin rechazo. Se reemplazó ese enfoque por una **lista blanca de campos por estructura**: los campos nuevos son rechazados por defecto y deben pasar revisión de contrato y pruebas antes de incorporarse. Se mantiene la prohibición de reutilizar esta lógica como única frontera de seguridad de un ejecutor real.
+
+## Continuidad documental tras PR #12
+
+LF-017 registra el cierre verificable de LF-016 y prepara [la especificación independiente de LF-001d](../specs/LF-001d.md). Su alcance es solo documentación, sin implementar ni activar el adaptador real. Las siete puertas anteriores requieren evidencia operativa futura; aprobar este diseño no equivale a superarlas. Se conservan proveedor y método sin seleccionar, presupuesto autorizado cero y BACKLOG intacto.
