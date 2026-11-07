@@ -12,6 +12,7 @@ import { SkeletonRows } from "@/components/ui/skeleton";
 import { Banner } from "@/components/ui/banner";
 import { DashboardIcon } from "@/components/ui/icons";
 import { SYNTHETIC_LEADS, SYNTHETIC_STAGES, SYNTHETIC_FOLLOWUPS, SYNTHETIC_ORG } from "@/app/design/_data/fixtures";
+import { monthCohort } from "@/app/design/app/dashboard/_lib/cohort";
 
 type PreviewState = "normal" | "carga" | "error" | "vacio";
 const INTERVALS = [
@@ -19,11 +20,6 @@ const INTERVALS = [
   { value: "90", label: "Últimos 90 días" },
   { value: "180", label: "Últimos 180 días" },
 ];
-
-function monthCohort(iso: string): string {
-  const date = new Date(iso);
-  return date.toLocaleDateString("es-CO", { month: "short", year: "numeric" });
-}
 
 export function DashboardClient() {
   const [intervalDays, setIntervalDays] = useState("90");
@@ -52,7 +48,7 @@ export function DashboardClient() {
   const cohorts = useMemo(() => {
     const groups = new Map<string, { total: number; won: number }>();
     for (const lead of inInterval) {
-      const key = monthCohort(lead.createdAt);
+      const key = monthCohort(lead.createdAt, SYNTHETIC_ORG.timezone);
       const entry = groups.get(key) ?? { total: 0, won: 0 };
       entry.total += 1;
       const stage = SYNTHETIC_STAGES.find((s) => s.id === lead.stageId);

@@ -428,7 +428,8 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "docs/specs/LF-003.md",
         "src/app/design/**",
         "src/components/ui/**",
-        "tests/e2e/design-preview.spec.ts"
+        "tests/e2e/design-preview.spec.ts",
+        "tests/unit/design/**"
       ]
     }
   ]
@@ -734,3 +735,11 @@ Archivos reservados: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-003.md
 **Reconciliación real tras la fusión de PR #21**: el propietario fusionó PR #21 en `46a9bb277ac63543982484e01e3515408d903b81` (padres: `209b808e3053907fd431f4a17cbdccdbe97a02cb` y `0f0bb22870501722dae1795ffe2b8e3d536aa5a6`, el candidato auditado de forma independiente por Claude antes de la fusión). El registro de LF-024 arriba se actualiza a `completed` con esa evidencia real. Claude sincronizó esta rama (`design/lf-003-ui-ux-proposal`, PR #20) con `main` mediante un merge real (nunca rebase/squash), conservando su propia reserva LF-003 intacta. Nótese que el commit de fusión de PR #21 usa un *subject* personalizado ("Merge PR #21: LF-024 default GitHub merge release verification") que ya contiene `LF-024` literalmente — la ruta nueva de reconocimiento de mensaje predeterminado de LF-024 no fue necesaria para liberar la propia reserva de LF-024, solo para la de LF-023.
 
 **Etapa 1 aprobada; etapa 2 autorizada expresamente**: el propietario aprobó la dirección visual de la etapa 1 sobre el candidato `3953bdbc48e91e576d38db3c5132aaec4dce7cb8` (CI real en verde: `Coordination gate` y `Foundation verification`, ambos `success`) y autorizó continuar con la etapa 2 completa — organizaciones, pipeline, dashboard, historial agregado y contenido real del asistente de IA, mismo sistema de diseño y datos sintéticos, sin backend ni proveedores. Misma reserva de archivos (sin cambios: todo vive bajo los mismos globs ya reservados). PR #20 permanece en DRAFT, sin fusión; AUTOPILOT y `docs/autopilot/BACKLOG.json` sin tocar.
+
+## LF-003 — corrección: inconsistencia de zona horaria en el dashboard (candidato `9a146f7`)
+
+El propietario reportó, sobre el candidato `9a146f7426e8cd7075db102b15e8ccb1cdfd34c5` de PR #20, que `monthCohort()` llamaba a `toLocaleDateString` sin `timeZone` explícita, pese a que el dashboard anuncia `SYNTHETIC_ORG.timezone` en pantalla — el mismo prospecto podía caer en una cohorte distinta según la zona del navegador. Caso reproducido exactamente: instante `2026-11-01T02:00:00Z` → sin zona explícita, `nov de 2026` (dependiente de la zona ambiental); con `America/Bogota` explícita, `oct de 2026` (correcto). Detalle completo, corrección y regresión en `docs/specs/LF-003.md` §11.
+
+Reserva ampliada antes de escribir código: se añadió `tests/unit/design/**` a los archivos de esta tarea (abajo) y a "Archivos previstos" de LF-003 en `docs/ROADMAP.md`. No se amplió ningún otro alcance; no se tocaron reglas de R08 ni ninguna otra pantalla.
+
+**Resultados reales**: `npx vitest run tests/unit/` → **88/88** (6 nuevas en `tests/unit/design/cohort.test.ts`, que ejercitan la función real `monthCohort` exportada de `src/app/design/app/dashboard/_lib/cohort.ts`, con el instante exacto del reporte y un segundo instante cercano a otro cambio de mes, variando `process.env.TZ` para probar independencia real de la zona ambiental — confirmado también que la regresión falla de verdad contra la implementación anterior sin `timeZone`, 4/6 casos). `npm run lint`/`typecheck`/`build` limpios. `node --test tests/coordination/*.test.mjs` → **227/227**, sin cambios. `npx playwright test` → **44/44**, sin cambios. Ambos verificadores de coordinación (`check-coordination.mjs`, `check-done-proof.mjs`) ejecutados sobre el SHA final.
