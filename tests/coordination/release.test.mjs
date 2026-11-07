@@ -34,3 +34,61 @@ test('unverified previous reservation still prevents conflicting edits',()=>{
  assert.throws(()=>checkCoordination({files:['docs/HANDOFF.md'],branch:'automation/lf-001a-autopilot',roadmap,handoff:registry(current),baseHandoff:registry([task('active')])}),/reserved by active task/);
  assert.equal(checkCoordination({files:['docs/HANDOFF.md'],branch:'automation/lf-001a-autopilot',roadmap,handoff:registry(current),baseHandoff:registry([task('active')]),releasedTaskIds:['LF-001']}).count,1);
 });
+
+test('GitHub default merge message releases the exact reserved task with real Git proof', async (t) => {
+ const dir=mkdtempSync(join(tmpdir(),'lf-default-release-'));
+ const git=(...args)=>execFileSync('git',args,{cwd:dir,encoding:'utf8'});
+ try {
+   git('init','-q');git('config','user.email','test@example.invalid');git('config','user.name','Tester');
+   writeFileSync(join(dir,'f'),'base');git('add','.');git('commit','-qm','base');
+   const trunk=git('branch','--show-current').trim();
+   const before=git('rev-parse','HEAD').trim();
+   git('checkout','-qb','integration/lf-001-foundation');
+   writeFileSync(join(dir,'f'),'implementation');git('commit','-qam','LF-001 implementation');
+   const head=git('rev-parse','HEAD').trim();git('checkout','-q',trunk);
+   const subject='Merge pull request #19 from Aarom-Villanueva/integration/lf-001-foundation';
+   const validMessage=subject+'\n\nLF-001: foundation';
+   git('merge','--no-ff','-m',validMessage,head);
+   let merge=git('rev-parse','HEAD').trim();
+   const verify=(overrides={})=>verifiedMergeReleases({previous:[task('active')],current:[task('completed',{head_sha:head,merge_sha:merge})],base:merge,git,...overrides});
+   const changeMessage=(message)=>{git('commit','--amend','-qm',message);merge=git('rev-parse','HEAD').trim();};
+
+   await t.test('accepts the default subject plus exact task title',()=>{
+     assert.deepEqual(verify(),['LF-001']);
+   });
+   await t.test('still rejects a false merged head',()=>{
+     assert.deepEqual(verify({current:[task('completed',{head_sha:before,merge_sha:merge})]}),[]);
+   });
+   await t.test('still rejects a merge absent from the trusted base',()=>{
+     assert.deepEqual(verify({base:head}),[]);
+   });
+   await t.test('still rejects a changed reservation owner or branch',()=>{
+     const completed=task('completed',{head_sha:head,merge_sha:merge});
+     for(const changed of [{...completed,owner:'Other'},{...completed,branch:'other/branch'}]) {
+       assert.deepEqual(verify({current:[changed]}),[]);
+     }
+   });
+   await t.test('rejects a different or suffix-extended branch',()=>{
+     for(const branch of ['other/branch','integration/lf-001-foundation-extra']) {
+       changeMessage(`Merge pull request #19 from Aarom-Villanueva/${branch}\n\nLF-001: foundation`);
+       assert.deepEqual(verify(),[]);
+     }
+   });
+   await t.test('rejects a task mention anywhere except the exact first title',()=>{
+     for(const body of ['Other title\n\nLF-001: mentioned later','Foundation related to LF-001','LF-001a: different task','LF-001']) {
+       changeMessage(subject+'\n\n'+body);assert.deepEqual(verify(),[]);
+     }
+   });
+   await t.test('rejects arbitrary subjects even if the body starts with the task',()=>{
+     changeMessage('Integrate unrelated work\n\nLF-001: foundation');assert.deepEqual(verify(),[]);
+   });
+   await t.test('rejects missing title and malformed PR number',()=>{
+     for(const message of [subject,subject.replace('#19','#0')+'\n\nLF-001: foundation']) {
+       changeMessage(message);assert.deepEqual(verify(),[]);
+     }
+   });
+   await t.test('accepts a genuine default message after all negative controls',()=>{
+     changeMessage(validMessage);assert.deepEqual(verify(),['LF-001']);
+   });
+ } finally {rmSync(dir,{recursive:true,force:true});}
+});

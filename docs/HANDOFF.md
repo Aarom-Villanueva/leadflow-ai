@@ -363,7 +363,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-023",
       "owner": "Claude",
       "branch": "impl/lf-023-lf-002a-identity-spike",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -394,6 +394,23 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "tests/unit/lf-002a/transaction-instrumentation.test.ts",
         "package.json",
         "package-lock.json"
+      ],
+      "completion": {
+        "head_sha": "c4611773e08a8e733cb3f04911d27e0ae4489e80",
+        "merge_sha": "209b808e3053907fd431f4a17cbdccdbe97a02cb"
+      }
+    },
+    {
+      "id": "LF-024",
+      "owner": "ChatGPT",
+      "branch": "fix/lf-024-default-merge-release",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-024.md",
+        "scripts/check-coordination.mjs",
+        "tests/coordination/release.test.mjs"
       ]
     }
   ]
@@ -670,3 +687,19 @@ El propietario autorizó expresamente, sobre `3b4f3cb7db57e363f22898961cd48cedd0
 Exclusiones vigentes sin cambios: sin desplegar, sin contratar servicios, sin datos reales, sin proveedores externos; `docs/autopilot/BACKLOG.json` intacto, sin desbloquear tareas; AUTOPILOT y el ejecutor de agentes en pausa; PR #19 permanece en DRAFT, sin fusión ni auto-merge. Detalle completo y resultados reales (aprobado/fallido/omitido, nunca un resultado distinto del observado) en `docs/specs/LF-023.md` §11, actualizado una vez ejecutada la fase 2.
 
 **Resultados reales de la ejecución** (detalle completo en `docs/specs/LF-023.md` §11.1): dependencias instaladas y confirmadas (`better-auth@1.7.18`, `drizzle-orm@0.45.4`, `pg@8.23.1`, `drizzle-kit@0.31.11`, `@types/pg@8.23.1`); PostgreSQL 16 iniciado, inventario previo con solo `postgres` preexistente, conservada intacta; creados exclusivamente `lf002a_spike` y los roles `lf002a_provisioner`/`lf002a_runtime` (sin `CREATEDB`/`CREATEROLE`/superusuario); `LF002A_AUTH_SECRET` y las tres contraseñas de rol generados y guardados únicamente en `.env.test.local` (gitignored, `0o600`), nunca impresos. Matriz P01-P16 ejecutada de verdad contra PostgreSQL/Better Auth reales: **17/17 casos pasaron** (P01 como precondición obligatoria de cada `beforeAll`; P02-P09; P10-P14; P15/P15b/P16), ejecutados en dos invocaciones separadas y nunca concurrentes (`vitest.lf-002a.config.ts` y `vitest.lf-002a.lifecycle.config.ts`), vía `suite-lock.ts`. Se encontraron y corrigieron cuatro errores reales, ninguno conocido antes de ejecutar: (1) error de tipos real en `buildAuth` (`ReturnType<typeof drizzle>` fija el overload `Pool`, incompatible con el `PoolClient` de P13b) — corregido retipando a `Parameters<typeof drizzleAdapter>[0]`; (2) `CREATE DATABASE` sin `OWNER` explícito dejaba a `lf002a_provisioner` sin permiso para crear la fila marcadora bajo las revocaciones por defecto de PostgreSQL 15+ sobre `public` — corregido añadiendo `owner "lf002a_provisioner"`, con regresión nueva en `lab-target.test.ts`; (3) `tenant_probe` activa `FORCE ROW LEVEL SECURITY`, así que las lecturas de verificación SIN contexto de tenant del provisionador (en `seed.ts`, y en P04/P05/P08 de `isolation.test.ts`, y en P16 de `lifecycle.test.ts`) pasaban vacuamente — corregidas envolviendo cada una en `withTenantContext` con el tenant real de la fila; (4) Better Auth lee el token de sesión exclusivamente de una cookie firmada (confirmado leyendo `node_modules/better-auth/dist/api/routes/session.mjs` directamente), por lo que el header `Authorization: Bearer` de `auth-boundary.test.ts` no tenía efecto sin el plugin `bearer` — corregido añadiendo `plugins: [bearer()]` a `buildAuth`. Verificaciones generales, todas reales: `npm run lint` limpio; `npm run typecheck` limpio (a diferencia de todas las rondas anteriores, que tenían la cascada disclosed de módulos no instalados — ahora instalados, el error desapareció porque era real y esperado, no una regresión); `node --test tests/coordination/*.test.mjs` → 217/217; `npx vitest run tests/unit/` → 82/82, sin cambios por la fase 2. Ningún pendiente dentro del alcance autorizado.
+
+
+## LF-024 — liberación verificable con el mensaje predeterminado de GitHub
+
+- Responsable: ChatGPT. Revisor independiente: Claude/propietario, pendiente. Rama `fix/lf-024-default-merge-release`, base `209b808e3053907fd431f4a17cbdccdbe97a02cb`.
+- Reserva registrada antes de editar código: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-024.md`, `scripts/check-coordination.mjs`, `tests/coordination/release.test.mjs`.
+- LF-023 se cierra con head `c4611773e08a8e733cb3f04911d27e0ae4489e80` y merge `209b808e3053907fd431f4a17cbdccdbe97a02cb`, padres y ancestría comprobados. El identificador está en el título del PR incluido en el cuerpo del merge; su subject predeterminado solo contiene la rama en minúsculas.
+- Objetivo: reconocer de forma acotada ese formato sin suprimir la prueba Git ni aceptar menciones arbitrarias del identificador en el cuerpo. No se reescribe el historial ni se modifica el PR #20 de Claude.
+- Alcance interno de corrección del gate que bloquea el trabajo de producto; no reanuda AUTOPILOT. BACKLOG, workflows, dependencias y src intactos.
+- Validación y manifiesto SHA-256: se registran en el commit y el PR tras ejecutarlos. Sin autoaprobación ni autorización de merge.
+
+### Validación local LF-024
+
+- Node 24.22.1 ya disponible, sin instalar dependencias. Suite de coordinación: 227/227. Regresión ejecutada con el verificador original: las dos afirmaciones positivas del formato predeterminado fallan; con la corrección pasan. Todos los controles negativos pasan con ambos verificadores.
+- Sobre base `209b808e3053907fd431f4a17cbdccdbe97a02cb` y candidato real de PR #20 `e20294b622e694ea4558d580ab9805eb814c9d85`, el CLI corregido produce `taskId: LF-003`, `count: 46`, `foundation: true`, `verified_releases: [LF-023]`. Es una reproducción local, no un check remoto de PR #20.
+- Los resultados de los gates de LF-024 y CI se adjuntan al PR. No se ejecutó localmente la suite de aplicación (dependencias no instaladas en este checkout); se comprobará el job remoto completo.
