@@ -77,15 +77,15 @@ Provider invocation (confiable; ya implementado por LF-019)
 =====================================================================
   FRONTERA DEL EXECUTOR SANDBOX (propuesta de esta entrega)
 
-  Lanzador confiable (fuera del sandbox; privilegios del entorno host)
-       |  construye, antes de iniciar el proceso del agente, EN ESTE ORDEN:
+  Lanzador/controlador confiable (mismo supervisor fuera del sandbox)
+       |  coordina la preparación antes del proceso no confiable, EN ESTE ORDEN:
        |   - espacio temporal descartable (3.2)
        |   - namespaces propios (mount/pid/net/uts/ipc) (3.3, 3.4, 3.5)
        |   - vista de sistema de archivos restringida (3.3)
        |   - cgroup con límites de memoria/CPU (3.7)
        |   - retirada de privilegios: UID/GID, capacidades, no_new_privs,
-       |     seccomp (3.1) — ÚLTIMO PASO antes de ejecutar, nunca antes
-       |     de que los namespaces/cgroup ya estén listos
+       |     seccomp (3.1) — después de preparar namespaces/cgroup
+       |   - init confiable permanece como PID 1 del intento (3.5)
        |   - auxiliar confiable espera en la barrera de arranque (3.1)
        |   - controlador verifica el estado real antes de autorizar exec
        v
@@ -100,6 +100,16 @@ Publisher (confiable; ya implementado por LF-020; recibe solo datos)
 ```
 
 El "lanzador confiable" vive FUERA del sandbox que construye, con los privilegios del entorno donde corre (en esta sesión, privilegios casi completos — sección 1.1). Esto introduce una responsabilidad nueva y explícita que ninguna sección anterior del diseño necesitaba precisar: el propio lanzador debe demostrarse que nunca expone al proceso que arranca ninguna credencial, archivo o capacidad que ese proceso no deba tener — construir el sandbox no es solo "lanzar con unshare", es también "retirar activamente el propio privilegio del proceso lanzado" (sección 3.1), "nunca heredar `process.env` completo", "nunca montar el checkout real", "nunca pasar un descriptor de archivo abierto hacia un secreto". Ninguna de estas disciplinas sustituye a las demás.
+
+### Roles confiables y relación entre procesos (propuestos, no implementados)
+
+| Término | Proceso y frontera | Responsabilidad |
+|---|---|---|
+| Lanzador / controlador | Dos nombres del **mismo proceso supervisor** fuera del sandbox, en el namespace ancestro; no hay un controlador adicional con otra credencial o frontera de privilegio | Prepara y coordina el intento, verifica al auxiliar, impone el timeout externo, autoriza una sola apertura de barrera y cancela desde fuera. Sus privilegios de preparación nunca se transfieren al comando. |
+| Init confiable del intento | Proceso mínimo **PID 1 dentro del namespace**, supervisado por el lanzador/controlador | Permanece como supervisor interno durante el intento y recoge sus procesos hijos. No se reemplaza mediante exec por el comando no confiable. Su terminación es el punto de cancelación de la sección 3.5. No recibe credenciales ni un canal para autorizar ejecuciones. |
+| Auxiliar de arranque confiable | Proceso hijo del init, distinto del PID 1; proviene del lanzador, nunca de la exportación de la tarea | Aplica la preparación que corresponda a su proceso, retira sus privilegios y espera en la barrera. El controlador verifica **este mismo proceso**. Solo tras confirmación válida cierra su canal y se reemplaza mediante exec por el comando no confiable, conservando las restricciones; el init sigue siendo PID 1. |
+
+Los tres papeles forman parte del lanzador propuesto en `scripts/autopilot/executor-sandbox.mjs` (sección 5); ese archivo deberá coordinar los procesos y el código confiable de init/auxiliar. No se añaden rutas reservadas ni se implementan procesos en LF-021. Si la tecnología elegida necesita un binario auxiliar u otros archivos, la futura especificación debe fijar esas rutas exactas y su reserva antes de crearlos. El código confiable y su integridad no pueden depender de archivos modificables por la tarea.
 
 ### Limitaciones reales, ya conocidas sin construir nada
 
@@ -133,6 +143,8 @@ Este es el control que faltaba de forma explícita en la versión anterior de es
 La confirmación queda vinculada a un identificador de intento único, `taskId`, `fenceToken`, base SHA, huella de la configuración/comando autorizado y la identidad estable del auxiliar observado; no basta un PID numérico que pueda reutilizarse. Es de un solo uso, caduca y no es transferible a otro proceso o intento. El controlador es el único emisor; debe rechazar mensajes inválidos, duplicados o de otro intento. Una pausa o invalidación pendiente impide emitirla. Antes de abrir la barrera, el auxiliar comprueba la correspondencia y vigencia de la confirmación; si no puede comprobarlas, no ejecuta. El mecanismo exacto del canal, identidad de proceso y coordinación entre confirmación, fencing y PAUSA deberá concretarse y revisarse en la especificación de implementación antes de autorizar código; ninguna de estas garantías se declara demostrada aquí.
 
 El canal solo transporta mensajes de control mínimos, sin credenciales, claves, descriptores hacia archivos privilegiados ni acceso al servicio de publicación. El auxiliar lo cierra antes de `execve` y se marca además para cierre al ejecutar; el comando no hereda capacidad para autorizar otro intento. El auxiliar no procesa archivos de inicio, configuración ejecutable ni intérpretes elegidos por la tarea durante la preparación o la espera. Mientras espera, no cambia las restricciones verificadas. Un error, una respuesta ausente o inválida, timeout, pérdida del canal o terminación del controlador llevan a aborto; nunca a ejecución por defecto, reintento ni continuación por haber transcurrido un plazo.
+
+**Timeout de la barrera.** Lo impone el lanzador/controlador desde fuera del sandbox, con reloj monótono y un plazo finito fijado antes de iniciar la preparación. El mismo plazo cubre la preparación, la espera y la verificación previa; al vencer, el controlador no emite confirmación, aborta y termina los procesos del intento, confirmando la detención antes de limpiar. Un temporizador defensivo del auxiliar puede cerrar la espera, pero nunca sustituye al temporizador externo ni autoriza exec. La pérdida o terminación del controlador cierra el canal y hace fallar la barrera; no se permite continuar porque falte el supervisor. El mecanismo concreto de temporización y sus carreras con autorización/cancelación sigue sujeto a la especificación de implementación separada. Si una confirmación ya pudo consumirse, la evidencia incierta se trata conforme al párrafo siguiente, sin prometer retroactivamente cero ejecuciones.
 
 **Fallo cerrado.** Si falla la preparación o la verificación previa, la confirmación es inválida o no llega antes del plazo, el comando no confiable tiene **cero ejecuciones**. El controlador registra el motivo sin secretos, termina el auxiliar y sus procesos confiables de preparación, confirma su detención y solo entonces limpia el espacio descartable. La reconciliación de lease/presupuesto sigue los contratos existentes: no liberar por plazo ni inferir consumo cero de un proceso simplemente no observado. Este fallo previo es distinto de `unknown_outcome`: si la confirmación pudo haberse consumido y no se sabe si `execve` llegó a ocurrir, se conserva un resultado incierto y las reservas hasta reconciliar; nunca se informa falsamente que no hubo ejecución. Una comprobación posterior al arranque que detecte una anomalía exige cancelación y evidencia, pero no permite afirmar que el comando nunca llegó a ejecutarse.
 
@@ -222,7 +234,7 @@ Las evidencias se registran con la misma disciplina que ya exige el procedimient
 
 | Ruta prevista | Propósito |
 |---|---|
-| `scripts/autopilot/executor-sandbox.mjs` | Lanzador confiable: construye el espacio descartable, los namespaces, el cgroup, retira privilegios del intento (sección 3.1) y expone las funciones que `pause-controller.mjs` ya consume (`cancel`, la fuente real de `confirmStopped`) sin modificar ese módulo |
+| `scripts/autopilot/executor-sandbox.mjs` | Lanzador/controlador externo y coordinación del init PID 1 y su auxiliar de arranque hijo (roles de la sección 2); prepara aislamiento, verifica la barrera e impone su timeout externo; expone `cancel` y la fuente real de `confirmStopped`. Si se necesitan artefactos auxiliares separados, se fijarán y reservarán antes de implementar, nunca se presuponen ya creados. |
 | `scripts/autopilot/sandbox-fixtures/*.json` | Fixtures offline sintéticos para el plan de pruebas de la sección 6 (comandos de prueba, lista blanca de entorno/capacidades/syscalls esperada, escenarios de límite) |
 | `tests/coordination/lf-0NN-executor-sandbox.test.mjs` | Pruebas offline/sintéticas de ese lanzador — nombre exacto de archivo (número de tarea) se fija en la propia reserva de esa implementación futura, no en esta propuesta |
 | `docs/specs/LF-0NN.md` | Contrato de esa implementación futura: nueva tarea, nueva reserva, nueva revisión independiente |
@@ -236,7 +248,7 @@ Mismo espíritu que la sección 13 de `LF-001d-IMPLEMENTATION-DESIGN.md`: cada c
 | Caso | Comando sintético | Resultado esperado |
 |---|---|---|
 | Verificación previa fallida | El auxiliar confiable queda esperando; el controlador detecta una restricción que no coincide con la configuración | Cero ejecuciones del comando no confiable; aborto y detención confirmada antes de limpiar; ninguna verificación posterior sustituye esta prueba |
-| Timeout en la barrera | Se omite la confirmación hasta superar el plazo configurado | Cero ejecuciones; no continuar ni reintentar al vencer el plazo; conservar evidencia del aborto |
+| Timeout en la barrera | Se omite la confirmación hasta superar el plazo monótono del lanzador/controlador externo, incluso con el auxiliar bloqueado o sin progreso | Cero ejecuciones; el controlador cancela desde fuera, confirma detención y conserva evidencia; nunca depende de cooperación ni del reloj del auxiliar |
 | Pérdida de comunicación antes de confirmar | Cerrar el canal o terminar el controlador mientras el auxiliar espera | Cero ejecuciones; el auxiliar falla cerrado y el controlador/recuperación confirma detención antes de liberar recursos |
 | Confirmación de otro intento, inválida o repetida | Entregar una respuesta con taskId, token, base, configuración o identidad de auxiliar distintos; repetir una ya usada | Rechazo sin ejecutar; la autorización no se transfiere y el canal no llega al comando |
 | Arranque válido y evidencia posterior incierta | Tras verificación previa correcta, emitir una sola confirmación vinculada al intento; después simular pérdida de confirmación de exec | El caso válido ejecuta una sola vez; si no se conoce el resultado después de autorizar, conservar incertidumbre y reservas, sin declarar cero ejecuciones ni reintentar |
@@ -265,16 +277,16 @@ Cada caso se declara aquí como **pendiente**: esta propuesta documenta el plan,
 
 Una futura implementación de este diseño no se considera aprobada solo por "compilar y pasar pruebas con mocks". Exige, como mínimo:
 
-Antes de los casos siguientes, la barrera de la sección 3.1 debe demostrar cero ejecuciones del comando ante verificación fallida, timeout, pérdida de comunicación previa y confirmación inválida/de otro intento, más un arranque válido único y un resultado conservador si la evidencia se pierde después de autorizar. El contador de ejecuciones y los registros se observan desde fuera del código no confiable. Estas son pruebas futuras pendientes, no resultados de esta propuesta.
+1. Antes de los casos siguientes, la barrera de la sección 3.1 debe demostrar cero ejecuciones del comando ante verificación fallida, timeout, pérdida de comunicación previa y confirmación inválida/de otro intento, más un arranque válido único y un resultado conservador si la evidencia se pierde después de autorizar. El contador de ejecuciones y los registros se observan desde fuera del código no confiable. Estas son pruebas futuras pendientes, no resultados de esta propuesta.
 
-1. El comando sintético de retirada de privilegios (sección 6) confirma, desde dentro de una prueba automatizada que lee el estado real del proceso, que los cinco conjuntos de capacidades están vacíos, `no_new_privs` está activo, y el perfil seccomp rechaza las llamadas prohibidas — nunca solo que se pidieron esos valores.
-2. El comando sintético de traversal/lectura/escritura fuera del árbol (sección 6) falla de verdad, verificado ejecutando el lanzador real, no un mock de la función que lo invoca.
-3. El control negativo de red (sección 3.4) falla de verdad y la observación externa confirma cero bytes salientes — nunca solo "cero intentos registrados por el propio agente" (distinción que la sección 14 del diseño ya exige), y nunca con un resultado "inconcluso" presentado como aprobado.
-4. Ningún proceso del intento sobrevive tras cancelar, verificado contra el host real desde el namespace ancestro del lanzador (sección 3.5), no por una afirmación del lanzador.
-5. El entorno que ve el proceso no confiable, inspeccionado desde dentro de una prueba automatizada, contiene exactamente la lista blanca esperada — cero variables adicionales.
-6. Los tres mecanismos de la sección 3.7 producen, cada uno, el resultado que le corresponde — nunca se asume que exceder una cuota de CPU termina el proceso: *throttling* observable (`cpu.stat`) para la cuota, un OOM-kill observable (`memory.events`) para memoria, y una cancelación observable (sección 4) para el plazo de reloj, cada uno con su propia evidencia, no una sola comprobación genérica de "límite excedido".
-7. Los seis puntos anteriores se demuestran en el **entorno real de producción** elegido (sección 9) — una demostración solo en esta sesión de Claude Code Cloud no basta, por las razones de la sección 1.2.
-8. Revisión independiente (no por Claude) de la implementación y de la evidencia de los puntos 1–7, y autorización expresa y separada del propietario antes de cualquier ejecución con un agente o proveedor real.
+2. El comando sintético de retirada de privilegios (sección 6) confirma, desde dentro de una prueba automatizada que lee el estado real del proceso, que los cinco conjuntos de capacidades están vacíos, `no_new_privs` está activo, y el perfil seccomp rechaza las llamadas prohibidas — nunca solo que se pidieron esos valores.
+3. El comando sintético de traversal/lectura/escritura fuera del árbol (sección 6) falla de verdad, verificado ejecutando el lanzador real, no un mock de la función que lo invoca.
+4. El control negativo de red (sección 3.4) falla de verdad y la observación externa confirma cero bytes salientes — nunca solo "cero intentos registrados por el propio agente" (distinción que la sección 14 del diseño ya exige), y nunca con un resultado "inconcluso" presentado como aprobado.
+5. Ningún proceso del intento sobrevive tras cancelar, verificado contra el host real desde el namespace ancestro del lanzador (sección 3.5), no por una afirmación del lanzador.
+6. El entorno que ve el proceso no confiable, inspeccionado desde dentro de una prueba automatizada, contiene exactamente la lista blanca esperada — cero variables adicionales.
+7. Los tres mecanismos de la sección 3.7 producen, cada uno, el resultado que le corresponde — nunca se asume que exceder una cuota de CPU termina el proceso: *throttling* observable (`cpu.stat`) para la cuota, un OOM-kill observable (`memory.events`) para memoria, y una cancelación observable (sección 4) para el plazo de reloj, cada uno con su propia evidencia, no una sola comprobación genérica de "límite excedido".
+8. Los siete puntos anteriores se demuestran en el **entorno real de producción** elegido (sección 9) — una demostración solo en esta sesión de Claude Code Cloud no basta, por las razones de la sección 1.2.
+9. Revisión independiente (no por Claude) de la implementación y de la evidencia de los puntos 1–8, y autorización expresa y separada del propietario antes de cualquier ejecución con un agente o proveedor real.
 
 ## 9. Decisiones pendientes del propietario
 
