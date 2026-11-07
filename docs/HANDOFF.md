@@ -309,7 +309,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-020",
       "owner": "Claude",
       "branch": "impl/lf-020-publisher-reviewer-pause",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -319,6 +319,23 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "scripts/autopilot/reviewer-gate.mjs",
         "scripts/autopilot/pause-controller.mjs",
         "tests/coordination/lf-020-publisher-reviewer-pause.test.mjs"
+      ],
+      "completion": {
+        "head_sha": "70c6db33099b917b6338986ccfe27d8c82706bbe",
+        "merge_sha": "46c5b4b252dc28173aea95955d86b7c5e40f34db"
+      }
+    },
+    {
+      "id": "LF-021",
+      "owner": "Claude",
+      "branch": "design/lf-021-executor-sandbox-proposal",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-001d.md",
+        "docs/specs/LF-021.md",
+        "docs/autopilot/LF-001d-EXECUTOR-SANDBOX-PROPOSAL.md"
       ]
     }
   ]
@@ -493,3 +510,19 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Validación local, candidato y CI: se registrarán en el PR con comandos y resultados reales. No declarar CI ni revisión aprobadas antes de observarlas.
 - Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente (no por Claude) del SHA exacto, y autorización nueva y separada del propietario antes de implementar Executor sandbox o de cualquier ensayo con un proveedor real.
 - **Corrección post-revisión (misma rama, mismo PR en borrador):** una revisión independiente del candidato `e34dc2968282b8fff102ff726bd5786f6dfb5f6d` señaló tres hallazgos, resueltos exclusivamente en `scripts/autopilot/pause-controller.mjs` y `scripts/autopilot/publisher.mjs`: (1) **confirmación de detención estricta** — `PauseController.pause()` convertía `confirmStopped(...)` con `Boolean(...)`, por lo que `Promise.resolve(false)`, `{stopped:true}` o la cadena `"false"` se consideraban confirmaciones y permitían liberar el lease; se eliminó toda coerción (solo el booleano literal `true`, síncrono, confirma; un thenable nunca confirma ni se espera, con manejador vacío para su eventual rechazo), y se aplicó el mismo tratamiento a `cancel` para evitar `unhandledRejection` y registros falsos de cancelación; (2) **validación estructural del diff** — `Publisher` contaba como cero bytes cualquier `content` no textual (dejando pasar un `Buffer` de 1 MB con `maxTotalBytes:1`) y nunca rechazaba un `isSymlink` ambiguo como `"true"`; se añadió validación estricta de tipo (`content` debe ser `string`, `isSymlink` debe ser `boolean`) antes de cualquier otra comprobación; (3) **reconciliación segura del presupuesto durante PAUSA** — liberar el lease tras una detención confirmada nunca tocaba la reserva de presupuesto pendiente, dejándola bloqueada indefinidamente (reproducido: reserva de 100, pausa con detención confirmada antes de invocar, lease liberado pero presupuesto aún reservado, nueva autorización tras `resume()` denegada por `budget_not_available`); `pause()` ahora exige `budgetLedger` y solo reconcilia esa reserva a un costo confirmado de cero (`BudgetLedger.recordObservedCost(0)`, verificando la vinculación `taskId`/`fenceToken`) cuando la detención está confirmada **y** el lease no tiene ningún intento de envío registrado, liberando el lease solo después de esa reconciliación exitosa; un intento registrado, un costo ya desconocido, una reserva no vinculada o un fallo de reconciliación dejan lease y presupuesto bloqueados. Se añadieron 23 pruebas nuevas en `tests/coordination/lf-020-publisher-reviewer-pause.test.mjs` (57 en total: 34 preexistentes + 23 nuevas), 19 de ellas (nuevas y preexistentes extendidas) verificadas explícitamente como regresión real: fallan contra el candidato `e34dc2968282b8fff102ff726bd5786f6dfb5f6d` en un árbol aislado (construido con `git show` sobre ese SHA para los módulos afectados y las dependencias de LF-019, sin tocar el resto del repositorio) y pasan contra la corrección — incluyendo una prueba de extremo a extremo que reproduce exactamente el escenario del hallazgo 3 y tres casos negativos aislados (intento registrado, costo directamente desconocido, fallo de reconciliación simulado). Las garantías de LF-019 (fencing, exclusividad de leases, liberación segura, consumo de presupuesto, bloqueo automático ante resultado desconocido) se mantienen intactas; no se modificó `lease-store.mjs`, `budget-ledger.mjs`, `authorization-ledger.mjs`, `admission-validator.mjs`, `provider-invocation.mjs` ni `reviewer-gate.mjs`. Sin workflows ni dependencias modificados; `BACKLOG.json` intacto. El candidato corregido sigue sin implementar Executor sandbox ni ningún aislamiento real; requiere otra revisión independiente antes de cualquier autorización o fusión.
+
+## LF-020 — cierre verificado
+
+- PR #16 fusionado en `main` el 2026-11-06 por el propietario (`merged_by: Aarom-Villanueva`). Head auditado: `70c6db33099b917b6338986ccfe27d8c82706bbe`; merge: `46c5b4b252dc28173aea95955d86b7c5e40f34db`. Padres del merge: `b47a72588ef48cb3a2805aad260726da1a16115e` (primero) y `70c6db33099b917b6338986ccfe27d8c82706bbe` (segundo); `70c6db33...` es ancestro de `main`; el subject del merge menciona LF-020 — las tres condiciones de `verifiedMergeReleases`, verificadas tanto contra Git real como contra la API de GitHub (`merged:true`, `merged_by:"Aarom-Villanueva"`). Reserva LF-020 pasa a `completed` con esta evidencia, no por una marca unilateral.
+- LF-021 retoma el siguiente incremento de LF-001d sobre esta base: una propuesta exclusivamente documental de aislamiento local del ejecutor.
+
+## LF-021 — propuesta técnica (solo documentación) de aislamiento local del ejecutor
+
+- Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto de Claude; esta entrega no puede autorrevisarse.
+- Rama: `design/lf-021-executor-sandbox-proposal`. Base: `46c5b4b252dc28173aea95955d86b7c5e40f34db` (merge PR #16).
+- Autorización expresa del propietario: inspección de solo lectura del entorno de esta sesión y preparación de documentación que concrete la fila "Tecnología de aislamiento del ejecutor" de la sección 11 de `docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md`. Explícitamente NO autoriza instalar herramientas/dependencias, construir infraestructura (namespaces, cgroups, contenedores o VMs reales), ejecutar código no confiable, ni probar escapes.
+- Alcance: `docs/autopilot/LF-001d-EXECUTOR-SANDBOX-PROPOSAL.md` (nuevo) — inspección de solo lectura de **una** sesión concreta de Claude Code Cloud (kernel tipo microVM, Ubuntu 24.04, privilegio/capacidades casi completas desde dentro del shell, sin LSM ni seccomp local detectado, `docker` presente pero sin daemon alcanzable, `runc`/`unshare`/`chroot`/`cgroup`fs v1-híbrido presentes y escribibles pero no construidos ni probados), explícitamente distinguida del equipo del propietario (Windows, no inspeccionado) y de cualquier entorno de producción candidato (sin decidir); propone, sin construirlas, las restricciones de escritura/filesystem/red/procesos/tiempo/memoria/credenciales, un mecanismo de cancelación y recogida de evidencias, los archivos previstos para una implementación futura, un plan de pruebas sintético, la integración con `admission-validator.mjs`/`provider-invocation.mjs` (LF-019) y `pause-controller.mjs` (LF-020), y las decisiones pendientes del propietario. Contrato de esta tarea en `docs/specs/LF-021.md`.
+- Ninguna comprobación bloqueada se declaró superada: durante la inspección no se intentó ninguna conexión de red nueva (verificar red denegada por defecto exige construir primero el mecanismo, no autorizado en esta fase); el propietario reportó avisos de host bloqueado/secreto faltante/recursos agotados en su propio cliente, documentados en la sección 1.3 de la propuesta como observación suya, no reproducidos directamente por los comandos de solo lectura de esta inspección (todos locales: `/proc`, `/sys`, `/etc/os-release`, `command -v`, un socket de Docker local inexistente). Ningún aviso de secreto faltante se interpretó como necesidad de una credencial para el ejecutor.
+- `docs/autopilot/BACKLOG.json` intacto: `execution_enabled=false`; `LF-002a`/`LF-002`/`LF-003` siguen `blocked`. Sin workflows ni dependencias modificados. Diff exclusivamente bajo `docs/`: `foundation=false`, `Foundation verification` se omite correctamente.
+- Validación local, candidato y CI: se registrarán en el PR con comandos y resultados reales. No declarar CI ni revisión aprobadas antes de observarlas.
+- Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente (no por Claude) del SHA exacto, y autorización nueva y separada del propietario antes de decidir el entorno de producción real, instalar/construir cualquier mecanismo de aislamiento, o proponer una implementación.
