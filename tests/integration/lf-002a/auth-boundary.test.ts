@@ -365,15 +365,20 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
   test('P13b: compartiendo DELIBERADAMENTE el mismo cliente, las consultas del adaptador SÍ corren dentro de la transacción de tenant ya abierta', async () => {
     instrumentation.traces.length = 0;
     const client = await runtimePool.connect(); // pool separado: aquí no hace falta margen de conexiones, es la MISMA conexión para todo
+    // Instrumentar PRIMERO (hallazgo 2, tercera ronda): `createClientScopedAuth` es lo que
+    // envuelve `client.query` vía `instrumentConnection`. Antes, el BEGIN y el
+    // `set_config` se emitían con el `.query` SIN envolver todavía, así que nunca
+    // quedaban registrados — ni `beginTrace` podía existir, ni el xid real podía
+    // propagarse a nada.
+    const { auth: clientScopedAuth } = createClientScopedAuth(
+      client,
+      { secret: requireAuthSecret(), baseURL: 'http://127.0.0.1:0' },
+      instrumentation,
+    );
     try {
       await client.query('begin');
       await client.query("select set_config('app.tenant_id', $1, true)", [TENANT_A.tenantId]);
 
-      const { auth: clientScopedAuth } = createClientScopedAuth(
-        client,
-        { secret: requireAuthSecret(), baseURL: 'http://127.0.0.1:0' },
-        instrumentation,
-      );
       await clientScopedAuth.api.signUpEmail({
         body: { email: uniqueEmail('p13b'), password: syntheticPassword(), name: 'LF-002a P13b' },
       });

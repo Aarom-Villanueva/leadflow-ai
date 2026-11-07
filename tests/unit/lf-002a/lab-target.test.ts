@@ -18,8 +18,10 @@ import {
   FORBIDDEN_DATABASE_NAMES,
   SPIKE_DATABASE_NAME,
   SPIKE_MARKER_VALUE,
+  type OpenedConnection,
   type QueryableConnection,
   assertLabTargetAuthorized,
+  createSpikeTarget,
   markLabTargetAsCreated,
   verifyLabTarget,
   verifySameServer,
@@ -127,7 +129,7 @@ describe('lab-target: verifySameServer (hallazgo 1, segunda ronda)', () => {
   });
 });
 
-describe('lab-target: markLabTargetAsCreated (hallazgo 1, segunda ronda — evidencia de creación controlada)', () => {
+describe('lab-target: markLabTargetAsCreated', () => {
   test('escribe exactamente la tabla marcadora y la fila esperada, nada más', async () => {
     const calls: string[] = [];
     const double: QueryableConnection = {
@@ -141,50 +143,134 @@ describe('lab-target: markLabTargetAsCreated (hallazgo 1, segunda ronda — evid
     expect(calls[0]).toMatch(/create table if not exists "lf002a_lab_marker"/i);
     expect(calls[1]).toMatch(/insert into "lf002a_lab_marker"/i);
   });
+});
 
-  test('simulación de punta a punta: sin CREATE DATABASE exitoso, el marcador nunca se escribe — ninguna base preexistente ajena puede adquirirlo por "solo nombre"', async () => {
-    const markCalls: string[] = [];
-    const markerDouble: QueryableConnection = {
-      async query(sql: string) {
-        markCalls.push(sql);
-        return { rows: [], rowCount: 0 };
-      },
-    };
-
-    async function simulateGuardedCreate(createDatabase: () => Promise<void>, adminSysId: string, targetSysId: string) {
-      // Refleja la secuencia real de database.ts#createSpikeDatabaseIfMatching: CREATE
-      // DATABASE primero (lanza si ya existía — Postgres no tiene CREATE DATABASE IF NOT
-      // EXISTS); solo si tuvo éxito, se verifica el mismo servidor y se marca.
-      await createDatabase();
-      assertLabTargetAuthorized(verifySameServer({ systemIdentifier: adminSysId }, { systemIdentifier: targetSysId }));
-      await markLabTargetAsCreated(markerDouble);
-    }
-
-    // Caso 1: la base "ya existía" (CREATE DATABASE simulado lanza, como el comportamiento
-    // real de Postgres ante un nombre duplicado) — el marcador nunca se escribe.
-    await expect(
-      simulateGuardedCreate(
-        async () => {
+/**
+ * Doble de conexión programable por tabla de respuestas, para ejercitar la función REAL
+ * `createSpikeTarget` (no una copia de su secuencia) — hallazgo 1, tercera ronda sobre el
+ * candidato `bde090b`. Responde a exactamente las cuatro formas de consulta que
+ * `createSpikeTarget` emite: `current_database()`, `pg_control_system()`, `create
+ * database`, y las dos de `markLabTargetAsCreated` (create table/insert, contadas en
+ * `markCalls`).
+ */
+function makeScriptedConnection(opts: {
+  currentDatabase: string | null;
+  systemIdentifier: string;
+  createDatabaseThrows?: boolean;
+  markCalls: string[];
+}): QueryableConnection & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    async query<T>(sql: string) {
+      calls.push(sql);
+      if (/current_database/i.test(sql)) {
+        return {
+          rows: (opts.currentDatabase === null ? [] : [{ db: opts.currentDatabase }]) as T[],
+          rowCount: opts.currentDatabase === null ? 0 : 1,
+        };
+      }
+      if (/pg_control_system/i.test(sql)) {
+        return { rows: [{ sysid: opts.systemIdentifier }] as T[], rowCount: 1 };
+      }
+      if (/^\s*create database\b/i.test(sql)) {
+        if (opts.createDatabaseThrows) {
           throw new Error('duplicate_database: database "lf002a_spike" already exists');
-        },
-        'sysid-1',
-        'sysid-1',
-      ),
-    ).rejects.toThrow(/already exists/);
-    expect(markCalls).toHaveLength(0);
+        }
+        return { rows: [] as T[], rowCount: 0 };
+      }
+      if (/lab_marker/i.test(sql)) {
+        opts.markCalls.push(sql);
+        return { rows: [] as T[], rowCount: 0 };
+      }
+      throw new Error(`Unexpected query in scripted connection: ${sql}`);
+    },
+  };
+}
 
-    // Caso 2: CREATE DATABASE tuvo éxito, pero la conexión que se abrió para marcarla
-    // resulta estar en un servidor distinto al de la conexión administrativa (p. ej.
-    // variables de entorno mal configuradas apuntando a dos clústeres) — se rechaza antes
-    // de marcar.
-    const createSpy = vi.fn(async () => {});
-    await expect(simulateGuardedCreate(createSpy, 'sysid-admin', 'sysid-other')).rejects.toThrow(/Refusing to operate/);
-    expect(createSpy).toHaveBeenCalledTimes(1);
-    expect(markCalls).toHaveLength(0);
+describe('lab-target: createSpikeTarget (hallazgo 1, tercera ronda — secuencia real, no una simulación aparte)', () => {
+  test('reproduce el hallazgo exacto: CREATE DATABASE tiene éxito pero la conexión abierta para marcar resulta ser OTRA base del mismo servidor — el marcador nunca se escribe', async () => {
+    const markCalls: string[] = [];
+    const adminConn = makeScriptedConnection({ currentDatabase: 'postgres', systemIdentifier: 'sysid-1', markCalls: [] });
+    // El hallazgo exacto: la conexión "nueva" en realidad recibió otra base cualquiera del
+    // mismo servidor (no `lf002a_spike`) — mismo `system_identifier` que adminConn
+    // (verifySameServer por sí solo pasaría), pero base equivocada. Antes de esta
+    // corrección, nada comprobaba esto y el marcador se escribía igual ahí.
+    const wrongDbConn = makeScriptedConnection({ currentDatabase: 'some_other_app_db', systemIdentifier: 'sysid-1', markCalls });
+    const close = vi.fn(async () => {});
 
-    // Caso 3: éxito real, mismo servidor confirmado — solo aquí se escribe el marcador.
-    await simulateGuardedCreate(createSpy, 'sysid-admin', 'sysid-admin');
+    await expect(
+      createSpikeTarget(adminConn, async (): Promise<OpenedConnection> => ({ conn: wrongDbConn, close })),
+    ).rejects.toThrow(/Refusing to operate.*unexpected_database:some_other_app_db/);
+    expect(markCalls).toHaveLength(0); // cero escrituras del marcador
+    expect(close).toHaveBeenCalledTimes(1); // la conexión abierta se cierra igual, incluso al rechazar
+  });
+
+  test('rechaza una base de sistema como destino de la conexión nueva, aunque el servidor coincida', async () => {
+    const markCalls: string[] = [];
+    const adminConn = makeScriptedConnection({ currentDatabase: 'postgres', systemIdentifier: 'sysid-1', markCalls: [] });
+    const systemDbConn = makeScriptedConnection({ currentDatabase: 'template1', systemIdentifier: 'sysid-1', markCalls });
+
+    await expect(
+      createSpikeTarget(adminConn, async (): Promise<OpenedConnection> => ({ conn: systemDbConn, close: async () => {} })),
+    ).rejects.toThrow(/refusing_system_database/);
+    expect(markCalls).toHaveLength(0);
+  });
+
+  test('si la base ya existía, CREATE DATABASE lanza y la conexión nueva nunca se abre: cero escrituras del marcador', async () => {
+    const markCalls: string[] = [];
+    const adminConn = makeScriptedConnection({
+      currentDatabase: 'postgres',
+      systemIdentifier: 'sysid-1',
+      createDatabaseThrows: true,
+      markCalls: [],
+    });
+    const connectToNewDb = vi.fn();
+
+    await expect(createSpikeTarget(adminConn, connectToNewDb)).rejects.toThrow(/already exists/);
+    expect(connectToNewDb).not.toHaveBeenCalled(); // nunca se intenta abrir/marcar nada
+    expect(markCalls).toHaveLength(0);
+  });
+
+  test('rechaza cuando la conexión nueva resulta estar en un servidor distinto al de la conexión administrativa, aunque el nombre de base sea correcto', async () => {
+    const markCalls: string[] = [];
+    const adminConn = makeScriptedConnection({ currentDatabase: 'postgres', systemIdentifier: 'sysid-admin', markCalls: [] });
+    const otherServerConn = makeScriptedConnection({
+      currentDatabase: SPIKE_DATABASE_NAME,
+      systemIdentifier: 'sysid-other',
+      markCalls,
+    });
+
+    await expect(
+      createSpikeTarget(adminConn, async (): Promise<OpenedConnection> => ({ conn: otherServerConn, close: async () => {} })),
+    ).rejects.toThrow(/admin_and_target_different_server/);
+    expect(markCalls).toHaveLength(0);
+  });
+
+  test('rechaza si adminConn ya está conectada a la propia base del spike', async () => {
+    const adminConn = makeScriptedConnection({ currentDatabase: SPIKE_DATABASE_NAME, systemIdentifier: 'sysid-1', markCalls: [] });
+    const connectToNewDb = vi.fn();
+    await expect(createSpikeTarget(adminConn, connectToNewDb)).rejects.toThrow(/never the spike database itself/);
+    expect(connectToNewDb).not.toHaveBeenCalled();
+  });
+
+  test('camino positivo: nombre correcto y mismo servidor confirmados — solo entonces se escribe el marcador, y se cierra la conexión nueva', async () => {
+    const markCalls: string[] = [];
+    const adminConn = makeScriptedConnection({ currentDatabase: 'postgres', systemIdentifier: 'sysid-admin', markCalls: [] });
+    const correctConn = makeScriptedConnection({
+      currentDatabase: SPIKE_DATABASE_NAME,
+      systemIdentifier: 'sysid-admin',
+      markCalls,
+    });
+    const close = vi.fn(async () => {});
+
+    await createSpikeTarget(adminConn, async (): Promise<OpenedConnection> => ({ conn: correctConn, close }));
+
     expect(markCalls).toHaveLength(2);
+    expect(markCalls[0]).toMatch(/create table if not exists "lf002a_lab_marker"/i);
+    expect(markCalls[1]).toMatch(/insert into "lf002a_lab_marker"/i);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(adminConn.calls.some((sql) => /^\s*create database\b/i.test(sql))).toBe(true);
   });
 });
 

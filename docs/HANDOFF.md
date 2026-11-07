@@ -389,7 +389,9 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "vitest.lf-002a.lifecycle.config.ts",
         "tests/integration/lf-002a/suite-lock.ts",
         "tests/unit/lf-002a/suite-lock.test.ts",
-        ".gitignore"
+        ".gitignore",
+        "tests/integration/lf-002a/transaction-instrumentation.ts",
+        "tests/unit/lf-002a/transaction-instrumentation.test.ts"
       ]
     }
   ]
@@ -641,3 +643,12 @@ Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto;
 5. **Exclusión real entre suites**: nuevo `suite-lock.ts`, candado de archivo atómico (`fs.open(..., 'wx')`, solo `node:fs`) adquirido en `beforeAll`/liberado en `afterAll` de los tres archivos de prueba — las configuraciones de Vitest separadas por sí solas no impedían dos procesos concurrentes.
 
 Validación real ejecutada en esta ronda: `npx vitest run` → **67/67** pruebas puras, 7 archivos. `node --test tests/coordination/*.test.mjs` → **217/217**, sin regresión. `npm run lint` → limpio. `npm run typecheck` → 36 errores, mismo patrón exacto de cascada que la ronda anterior, confirmado línea por línea. Pendiente: las 16 pruebas P01-P16 contra PostgreSQL/Better Auth reales. Revisión independiente del candidato corregido, pendiente, antes de solicitar autorización de fase 2.
+
+## LF-023 — corrección de los 2 hallazgos pendientes de la tercera ronda de revisión (candidato `bde090b`)
+
+Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto; Claude no puede autorrevisarse. Misma rama. Autorización del propietario explícita para esta ronda, con el mismo alcance que las anteriores: corregir código/pruebas/documentación dentro de la reserva vigente; sin instalar dependencias, iniciar PostgreSQL, crear bases/roles, generar secretos, conectar proveedores, desplegar ni generar gastos. `docs/autopilot/BACKLOG.json` intacto, `execution_enabled=false`, tareas bloqueadas sin cambios. Detalle completo en `docs/specs/LF-023.md` §9; resumen:
+
+1. **Destino del marcador de procedencia**: `createSpikeDatabaseIfMatching` comprobaba el mismo servidor pero nunca el nombre real de la base que recibía la conexión nueva antes de marcarla — dos bases distintas del mismo servidor comparten `system_identifier`. Se reinstauró `checkDatabaseNameOnly` y se movió la secuencia completa de creación a una función pura nueva, `lab-target.ts#createSpikeTarget`, que valida toda la configuración disponible (nombre y servidor de ambas conexiones) antes de la única escritura. `database.ts#createSpikeDatabaseIfMatching` es ahora un envoltorio de pocas líneas que delega en esa función real — las pruebas nuevas la ejercitan con conexiones inyectadas, sin ninguna función `simulateGuardedCreate` aparte que copiara su secuencia.
+2. **Instrumentación y P13b**: P13b instrumentaba el cliente DESPUÉS de emitir BEGIN/set_config, así que esas consultas nunca quedaban registradas — se corrigió el orden. `realTransactionId` solo se asignaba a la propia traza de BEGIN (las consultas posteriores quedaban con `null` para siempre, rompiendo cualquier comparación por xid real); ahora se mantiene un estado activo por conexión que propaga el xid a toda consulta dentro de la transacción y se limpia al cerrar. El cierre se decidía por el texto enviado, nunca por lo que el servidor confirmó; ahora se decide por `result.command` real (un COMMIT tras un error se convierte en ROLLBACK server-side, y así debe quedar registrado). Los errores de cada consulta se registran y siempre se re-lanzan. Toda esta lógica se extrajo a un módulo puro nuevo, `transaction-instrumentation.ts`.
+
+Validación real ejecutada en esta ronda: `npx vitest run` → **80/80** pruebas puras en 8 archivos (13 netas más que la ronda anterior). `node --test tests/coordination/*.test.mjs` → **217/217**, sin regresión. `npm run lint` → limpio. `npm run typecheck` → 36 errores, mismo patrón exacto de cascada, confirmado línea por línea, ningún error nuevo. Pendiente: las 16 pruebas P01-P16 contra PostgreSQL/Better Auth reales — las pruebas offline con dobles de esta ronda nunca sustituyen esa ejecución real, y así se declara explícitamente. Revisión independiente del candidato corregido, pendiente, antes de solicitar autorización de fase 2.

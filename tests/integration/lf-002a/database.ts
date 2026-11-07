@@ -25,7 +25,7 @@ import {
   SPIKE_RUNTIME_ROLE,
   SPIKE_SCHEMA,
   assertLabTargetAuthorized,
-  markLabTargetAsCreated,
+  createSpikeTarget,
   verifyLabTarget,
   verifySameServer,
 } from './lab-target.js';
@@ -271,45 +271,31 @@ export async function getBackendIdentity(client: PoolClient): Promise<BackendIde
 }
 
 /**
- * Crea la única base reservada del laboratorio y, inmediatamente, le escribe la fila
- * marcadora de procedencia — la "evidencia de creación controlada" exigida por la segunda
- * ronda de revisión (hallazgo 1): como Postgres no tiene `CREATE DATABASE IF NOT EXISTS`,
- * si la base ya existía esta función lanza aquí mismo y NUNCA llega a marcarla, así que
- * ninguna base preexistente ajena puede adquirir el marcador por esta vía. `adminPool`
- * debe apuntar a una base de mantenimiento (p. ej. `postgres`), nunca a la propia base del
- * spike. `targetConnectionStringForNewDb` es la cadena con la que se abrirá, justo después
- * de crearla, la conexión que escribe el marcador — se verifica que está en el MISMO
- * servidor que `adminPool` (`system_identifier` real de `pg_control_system()`) antes de
- * escribir nada: compartir solo el nombre de la base nunca basta (hallazgo 1).
+ * Envoltorio fino sobre `lab-target.ts#createSpikeTarget` — la secuencia real de creación
+ * controlada (validar, luego `CREATE DATABASE`, luego validar de nuevo la conexión a la
+ * base nueva, solo entonces marcar) vive allí, pura y probada con dobles inyectados en
+ * tests/unit/lf-002a/lab-target.test.ts (hallazgo 1, tercera ronda sobre el candidato
+ * `bde090b`: antes no se comprobaba el nombre real de la base que recibía el marcador, solo
+ * el servidor — dos bases distintas del mismo servidor comparten `system_identifier`).
+ * Aquí solo se abren/cierran las conexiones `pg` reales. `adminPool` debe apuntar a una
+ * base de mantenimiento (p. ej. `postgres`), nunca a la propia base del spike.
  */
 export async function createSpikeDatabaseIfMatching(adminPool: Pool, targetConnectionStringForNewDb: string): Promise<void> {
   const adminClient = await adminPool.connect();
-  let adminSystemIdentifier: string;
   try {
-    const dbRow = await adminClient.query<{ db: string }>('select current_database() as db');
-    if (dbRow.rows[0]?.db === SPIKE_DATABASE_NAME) {
-      throw new Error('adminPool must connect to a maintenance database, never the spike database itself');
-    }
-    adminSystemIdentifier = await querySystemIdentifier(adminClient);
-    await adminClient.query(`create database "${SPIKE_DATABASE_NAME}"`);
+    await createSpikeTarget(adminClient, async () => {
+      const newDbPool = createSpikePool({ connectionString: targetConnectionStringForNewDb, maxConnections: 1 });
+      const newDbClient = await newDbPool.connect();
+      return {
+        conn: newDbClient,
+        close: async () => {
+          newDbClient.release();
+          await newDbPool.end();
+        },
+      };
+    });
   } finally {
     adminClient.release();
-  }
-
-  const newDbPool = createSpikePool({ connectionString: targetConnectionStringForNewDb, maxConnections: 1 });
-  try {
-    const newDbClient = await newDbPool.connect();
-    try {
-      const targetSystemIdentifier = await querySystemIdentifier(newDbClient);
-      assertLabTargetAuthorized(
-        verifySameServer({ systemIdentifier: adminSystemIdentifier }, { systemIdentifier: targetSystemIdentifier }),
-      );
-      await markLabTargetAsCreated(newDbClient);
-    } finally {
-      newDbClient.release();
-    }
-  } finally {
-    await newDbPool.end();
   }
 }
 

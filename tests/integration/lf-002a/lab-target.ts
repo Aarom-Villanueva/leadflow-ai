@@ -36,6 +36,23 @@
  * preexistente sin marcador (el riesgo real reportado), no contra un atacante con acceso
  * de escritura simultáneo al mismo clúster reproduciendo el valor exacto; ese nivel de
  * amenaza excede el alcance de un laboratorio descartable solo-loopback.
+ *
+ * Revisión independiente, TERCERA ronda (sobre el candidato `bde090b`), hallazgo 1:
+ * `database.ts#createSpikeDatabaseIfMatching` comprobaba el MISMO servidor
+ * (`verifySameServer`) entre la conexión administrativa y la candidata, pero nunca
+ * comprobaba qué base era realmente `targetConnectionStringForNewDb` antes de escribir el
+ * marcador — dos bases distintas en el MISMO servidor (p. ej. `postgres` y
+ * `lf002a_spike`) comparten `system_identifier` por definición, así que ese chequeo por sí
+ * solo no detecta una cadena de conexión mal configurada que apuntara a otra base del
+ * mismo clúster. `checkDatabaseNameOnly` vuelve a existir (se había retirado en la segunda
+ * ronda al creer que `markLabTargetAsCreated` nunca necesitaría un chequeo "solo por
+ * nombre") precisamente para cerrar ese hueco: `createSpikeDatabaseIfMatching` debe
+ * comprobar `current_database()` de la conexión que va a marcar, ANTES de marcarla — ver
+ * database.ts. A diferencia de la excepción retirada en la segunda ronda (que permitía que
+ * CUALQUIER código, incluido `applySchemaSql`, aceptara una base preexistente ajena solo
+ * por su nombre), este uso es estrictamente más limitado: solo se invoca dentro de
+ * `createSpikeDatabaseIfMatching`, inmediatamente después de un `CREATE DATABASE` propio
+ * ya exitoso, nunca como sustituto de `verifyLabTarget` en ningún otro punto.
  */
 
 export const SPIKE_DATABASE_NAME = 'lf002a_spike';
@@ -85,6 +102,27 @@ export function verifySameServer(adminIdentity: ServerIdentity, targetIdentity: 
 }
 
 /**
+ * Chequeo puro, solo por nombre (sin marcador): usado EXCLUSIVAMENTE por
+ * `database.ts#createSpikeDatabaseIfMatching`, inmediatamente después de un
+ * `CREATE DATABASE` propio ya exitoso, para confirmar que la conexión que está a punto de
+ * marcar es de verdad la base recién creada — nunca, por ejemplo, la base de mantenimiento
+ * `postgres` del mismo servidor por una cadena de conexión mal configurada. No sustituye a
+ * `verifyLabTarget` en ningún otro punto: `applySchemaSql`/`seedFixtures`/cualquier
+ * escritura posterior siguen exigiendo siempre la verificación completa (nombre +
+ * marcador) — este chequeo nunca es una excepción general "por nombre" como la que la
+ * segunda ronda de revisión retiró.
+ */
+export function checkDatabaseNameOnly(actualDatabaseName: string | null): LabTargetVerification {
+  if (actualDatabaseName === null || FORBIDDEN_DATABASE_NAMES.has(actualDatabaseName)) {
+    return { ok: false, reasons: [`refusing_system_database:${actualDatabaseName}`] };
+  }
+  if (actualDatabaseName !== SPIKE_DATABASE_NAME) {
+    return { ok: false, reasons: [`unexpected_database:${actualDatabaseName}`] };
+  }
+  return { ok: true, reasons: [] };
+}
+
+/**
  * Verifica, contra la propia conexión dada (debe apuntar ya a la base candidata — este
  * módulo nunca decide a qué base conectarse), que es realmente la base reservada del
  * laboratorio: nombre correcto Y marcador de procedencia presente. No emite ninguna
@@ -96,13 +134,8 @@ export async function verifyLabTarget(conn: QueryableConnection): Promise<LabTar
   const reasons: string[] = [];
 
   const dbRow = await conn.query<{ db: string }>('select current_database() as db');
-  const actualDatabaseName = dbRow.rows[0]?.db ?? null;
-  if (actualDatabaseName === null || FORBIDDEN_DATABASE_NAMES.has(actualDatabaseName)) {
-    return { ok: false, reasons: [`refusing_system_database:${actualDatabaseName}`] };
-  }
-  if (actualDatabaseName !== SPIKE_DATABASE_NAME) {
-    return { ok: false, reasons: [`unexpected_database:${actualDatabaseName}`] };
-  }
+  const nameCheck = checkDatabaseNameOnly(dbRow.rows[0]?.db ?? null);
+  if (!nameCheck.ok) return nameCheck;
 
   let markerRow: { rows: Array<{ created_for: string }> };
   try {
@@ -146,5 +179,69 @@ export async function markLabTargetAsCreated(conn: QueryableConnection): Promise
 export function assertLabTargetAuthorized(verification: LabTargetVerification): void {
   if (!verification.ok) {
     throw new Error(`Refusing to operate on unauthorized target: ${verification.reasons.join(', ')}`);
+  }
+}
+
+async function queryRealSystemIdentifier(conn: QueryableConnection): Promise<string> {
+  const result = await conn.query<{ sysid: string }>(
+    'select system_identifier::text as sysid from pg_control_system()',
+  );
+  const sysid = result.rows[0]?.sysid;
+  if (!sysid) throw new Error('pg_control_system() did not return a system_identifier');
+  return sysid;
+}
+
+export interface OpenedConnection {
+  readonly conn: QueryableConnection;
+  close(): Promise<void>;
+}
+
+/**
+ * Secuencia REAL de creación controlada de la base reservada del laboratorio — no una
+ * simulación aparte: `database.ts#createSpikeDatabaseIfMatching` es un envoltorio de pocas
+ * líneas que le pasa conexiones `pg` reales a ESTA función, así que un doble que se le
+ * inyecte aquí ejercita exactamente el código que corre en producción, nunca una copia de
+ * su secuencia (hallazgo 1, tercera ronda sobre el candidato `bde090b`).
+ *
+ * Orden, todo validado ANTES de la única escritura (`markLabTargetAsCreated`) que no sea
+ * el propio `CREATE DATABASE`:
+ * 1. `adminConn` no está conectada ya a la propia base del spike.
+ * 2. `system_identifier` real de `adminConn` (para el paso 5).
+ * 3. `CREATE DATABASE` del nombre reservado — la única operación que, si la base ya
+ *    existía, lanza y detiene todo lo siguiente (evidencia de creación controlada).
+ * 4. Se abre la conexión hacia la base recién creada (`connectToNewDb`) y se comprueba su
+ *    `current_database()` real ANTES de nada más — hallazgo 1 exacto: dos bases
+ *    DISTINTAS del mismo servidor (p. ej. `postgres` y `lf002a_spike`) comparten
+ *    `system_identifier` por definición, así que el chequeo de servidor por sí solo nunca
+ *    detecta una cadena de conexión mal configurada que apuntara a la base equivocada.
+ * 5. `system_identifier` real de esa conexión, comparado con el de `adminConn`
+ *    (`verifySameServer`).
+ * 6. Solo si 1, 3, 4 y 5 pasaron: `markLabTargetAsCreated`.
+ */
+export async function createSpikeTarget(
+  adminConn: QueryableConnection,
+  connectToNewDb: () => Promise<OpenedConnection>,
+): Promise<void> {
+  const adminDbRow = await adminConn.query<{ db: string }>('select current_database() as db');
+  if (adminDbRow.rows[0]?.db === SPIKE_DATABASE_NAME) {
+    throw new Error('adminConn must connect to a maintenance database, never the spike database itself');
+  }
+  const adminSystemIdentifier = await queryRealSystemIdentifier(adminConn);
+
+  await adminConn.query(`create database "${SPIKE_DATABASE_NAME}"`);
+
+  const { conn: newDbConn, close } = await connectToNewDb();
+  try {
+    const newDbRow = await newDbConn.query<{ db: string }>('select current_database() as db');
+    assertLabTargetAuthorized(checkDatabaseNameOnly(newDbRow.rows[0]?.db ?? null));
+
+    const targetSystemIdentifier = await queryRealSystemIdentifier(newDbConn);
+    assertLabTargetAuthorized(
+      verifySameServer({ systemIdentifier: adminSystemIdentifier }, { systemIdentifier: targetSystemIdentifier }),
+    );
+
+    await markLabTargetAsCreated(newDbConn);
+  } finally {
+    await close();
   }
 }

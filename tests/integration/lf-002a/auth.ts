@@ -18,33 +18,31 @@
  * (FROM/INTO/UPDATE/TABLE/JOIN, con o sin esquema — ver query-classifier.ts) contra el
  * conjunto CERRADO de tablas del laboratorio, nunca una heurística de subcadena.
  *
- * Revisión independiente, SEGUNDA ronda (candidato `212e201`), hallazgo 4:
- * - La primera corrección llamaba `transactionId` a una etiqueta puramente de este
- *   proceso (`backendPid:secuencia_local_de_BEGIN`) — eso NO es el identificador de
- *   transacción real de PostgreSQL, y presentarlo como tal sería engañoso. Se renombra a
- *   `observedTransactionSpanId` y se documenta exactamente qué es: un agrupador local
- *   para correlacionar trazas de ESTE proceso, nunca una prueba contra el servidor.
- * - Para una prueba VERIFICABLE de "misma transacción", se captura además
- *   `realTransactionId`: justo tras cada BEGIN, se consulta `pg_current_xact_id()` (función
- *   real de PostgreSQL 13+, documentada, estable) en la MISMA conexión, ESPERANDO esa
- *   consulta antes de devolver el control a quien llamó a `client.query('begin')` — así se
- *   evita una carrera entre "la transacción ya abrió" y "ya se capturó su xid real". Si la
- *   consulta falla (p. ej. una versión de Postgres anterior a la 13, sin esa función —
- *   no verificado en esta fase), `realTransactionId` queda `null` explícitamente, nunca se
- *   inventa un valor.
- * - También se registra el cierre de cada transacción: al ver COMMIT/ROLLBACK, se retrocede
- *   sobre las trazas de ese mismo `observedTransactionSpanId` que seguían `'open'` y se les
- *   asigna `'committed'`/`'rolledback'` — éxito/fallo y cierre quedan registrados, no solo
- *   el propio marcador aislado.
- * Queda pendiente, como el resto de esta fase, confirmar contra PostgreSQL real que
- * `pg_current_xact_id()` se comporta como se espera aquí (fase 2, no ejecutable todavía).
+ * Revisión independiente, SEGUNDA ronda (candidato `212e201`), hallazgo 4: se introdujo
+ * `observedTransactionSpanId` (agrupador LOCAL de este proceso, nunca un identificador de
+ * transacción real) y `realTransactionId` (el `pg_current_xact_id()` real, capturado tras
+ * cada BEGIN). La TERCERA ronda (candidato `bde090b`, hallazgo 2) encontró que esa primera
+ * versión tenía tres bugs reales — detalle completo y la corrección en
+ * transaction-instrumentation.ts, donde ahora vive toda esta lógica (extraída para que sea
+ * ejecutable y probada con un doble inyectado, sin `pg`, en
+ * tests/unit/lf-002a/transaction-instrumentation.test.ts). Este archivo solo instrumenta
+ * conexiones `pg.PoolClient` reales llamando a esa función pura.
  */
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { Pool, PoolClient } from 'pg';
-import { classifyQuery, sqlMarker, type QueryClassification, type TransactionMarker } from './query-classifier.js';
+import {
+  instrumentConnection,
+  type AuthInstrumentation,
+  type QueryClassification,
+  type QueryTrace,
+  type TransactionMarker,
+  type TransactionOutcome,
+} from './transaction-instrumentation.js';
+
+export type { AuthInstrumentation, QueryClassification, QueryTrace, TransactionMarker, TransactionOutcome };
 
 export const userTable = pgTable('user', {
   id: text('id').primaryKey(),
@@ -99,95 +97,13 @@ export const drizzleSchema = {
   verification: verificationTable,
 };
 
-export type { QueryClassification, TransactionMarker };
-
-export type TransactionOutcome = 'open' | 'committed' | 'rolledback';
-
-export interface QueryTrace {
-  /** SQL real tal como se envió, sin valores de parámetros — nunca material de sesión. */
-  readonly sql: string;
-  /** Backend físico que ejecutó la consulta (ver database.ts:getBackendIdentity). */
-  readonly backendPid: number;
-  /** Agrupador LOCAL de este proceso: `${backendPid}:${secuencia_de_BEGIN}`. Sirve para
-   * correlacionar trazas de la misma instrumentación, pero NO es un identificador de
-   * transacción real de PostgreSQL — nunca tratarlo como evidencia contra el servidor;
-   * para eso ver `realTransactionId`. */
-  readonly observedTransactionSpanId: string;
-  /** El `pg_current_xact_id()` real, capturado justo tras el BEGIN de este span en la
-   * MISMA conexión (consulta propia de la instrumentación, awaited antes de devolver el
-   * control — nunca una carrera). `null` si esa consulta falló (p. ej. versión de
-   * PostgreSQL sin esa función, no verificado todavía) o si la traza no pertenece a
-   * ningún span con BEGIN observado. Esta es la evidencia VERIFICABLE de "misma
-   * transacción"; `observedTransactionSpanId` es solo un agrupador local. */
-  realTransactionId: string | null;
-  /** Si esta traza ES un marcador de límite transaccional, cuál. */
-  readonly marker: TransactionMarker;
-  readonly classification: QueryClassification;
-  /** Éxito/fallo y cierre del span transaccional al que pertenece esta traza —
-   * retroactivamente puesto a 'committed'/'rolledback' cuando se observa el COMMIT/
-   * ROLLBACK correspondiente; 'open' mientras la transacción sigue abierta. */
-  outcome: TransactionOutcome;
-}
-
-export interface AuthInstrumentation {
-  readonly traces: QueryTrace[];
-}
-
-interface ClientTxnState {
-  readonly backendPid: number;
-  txnSeq: number;
-}
-
-/** Envuelve `client.query` para registrar cada consulta real con su backend, su
- * agrupador local y el xid real de PostgreSQL cuando el span lo tiene, su marcador de
- * límite transaccional si aplica, y su clasificación por tabla referenciada. Compartido
- * por el pool entero (`createInstrumentedAuth`) y por un cliente ya existente de una sola
- * conexión (`createClientScopedAuth`, P13: frontera transaccional compartida). */
+/** Envuelve `client.query` instrumentando la conexión real vía `instrumentConnection`
+ * (transaction-instrumentation.ts — toda la lógica de decisión vive allí, pura y probada
+ * con un doble). Compartido por el pool entero (`createInstrumentedAuth`) y por un cliente
+ * ya existente de una sola conexión (`createClientScopedAuth`, P13: frontera transaccional
+ * compartida). */
 function instrumentClient(client: PoolClient, instrumentation: AuthInstrumentation): void {
-  const backendPid = (client as unknown as { processID?: number }).processID ?? -1;
-  const state: ClientTxnState = { backendPid, txnSeq: 0 };
-  const originalQuery = client.query.bind(client);
-  (client as unknown as { query: typeof client.query }).query = (async (...args: Parameters<typeof client.query>) => {
-    const first = args[0];
-    const sql = typeof first === 'string' ? first : (first as { text?: string } | undefined)?.text ?? '';
-    const marker = sqlMarker(sql);
-    if (marker === 'begin') state.txnSeq += 1;
-    const spanId = `${backendPid}:${state.txnSeq}`;
-    const trace: QueryTrace = {
-      sql,
-      backendPid,
-      observedTransactionSpanId: spanId,
-      realTransactionId: null,
-      marker,
-      classification: marker ? 'other' : classifyQuery(sql),
-      outcome: 'open',
-    };
-    instrumentation.traces.push(trace);
-
-    const result = await originalQuery(...args);
-
-    if (marker === 'begin') {
-      // Se espera esta consulta ANTES de devolver el control a quien llamó a
-      // `client.query('begin')`, para que el xid real ya esté disponible en cuanto el
-      // propio BEGIN se considera terminado — nunca una carrera entre "ya abrió" y "ya se
-      // capturó su identificador real".
-      try {
-        const xidResult = await originalQuery('select pg_current_xact_id()::text as xid');
-        trace.realTransactionId = (xidResult as { rows: Array<{ xid: string }> }).rows[0]?.xid ?? null;
-      } catch {
-        trace.realTransactionId = null;
-      }
-    } else if (marker === 'commit' || marker === 'rollback') {
-      const finalOutcome: TransactionOutcome = marker === 'commit' ? 'committed' : 'rolledback';
-      for (const pastTrace of instrumentation.traces) {
-        if (pastTrace.observedTransactionSpanId === spanId && pastTrace.outcome === 'open') {
-          pastTrace.outcome = finalOutcome;
-        }
-      }
-    }
-
-    return result;
-  }) as unknown as typeof client.query;
+  instrumentConnection(client as unknown as Parameters<typeof instrumentConnection>[0], instrumentation);
 }
 
 export interface CreateAuthOptions {
