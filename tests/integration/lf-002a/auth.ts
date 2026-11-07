@@ -30,6 +30,7 @@
  */
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { bearer } from 'better-auth/plugins/bearer';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { Pool, PoolClient } from 'pg';
@@ -163,12 +164,20 @@ export function createClientScopedAuth(client: PoolClient, opts: CreateAuthOptio
   return { auth };
 }
 
-function buildAuth(db: ReturnType<typeof drizzle>, opts: CreateAuthOptions) {
+function buildAuth(db: Parameters<typeof drizzleAdapter>[0], opts: CreateAuthOptions) {
   return betterAuth({
     database: drizzleAdapter(db, { provider: 'pg', schema: drizzleSchema }),
     secret: opts.secret,
     baseURL: opts.baseURL,
     emailAndPassword: { enabled: true },
+    // Fase 2 (hallazgo real, verificado leyendo el paquete instalado, no supuesto):
+    // session.mjs del núcleo de Better Auth lee el token de sesión EXCLUSIVAMENTE de una
+    // cookie firmada (`ctx.getSignedCookie`); nunca consulta el header `Authorization`.
+    // Sin este plugin, `auth-boundary.test.ts` (headersForToken: `Bearer <token>`) jamás
+    // podría autenticar nada — getSession siempre vería una sesión ausente. `bearer()` es
+    // la superficie pública documentada de Better Auth para convertir ese header en la
+    // misma cookie de sesión internamente, sin tocar la lógica de aislamiento por tenant.
+    plugins: [bearer()],
     databaseHooks: {
       user: {
         create: {

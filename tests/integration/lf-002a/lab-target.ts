@@ -53,9 +53,19 @@
  * por su nombre), este uso es estrictamente más limitado: solo se invoca dentro de
  * `createSpikeDatabaseIfMatching`, inmediatamente después de un `CREATE DATABASE` propio
  * ya exitoso, nunca como sustituto de `verifyLabTarget` en ningún otro punto.
+ *
+ * Fase 2 (ejecución real contra PostgreSQL 16, no simulada): el primer intento real de
+ * `createSpikeTarget` falló con "permission denied for schema public" al llegar a
+ * `markLabTargetAsCreated` — verificado al ejecutarlo, no supuesto. Desde PostgreSQL 15,
+ * el esquema `public` de una base nueva ya no concede `CREATE` a `PUBLIC`; sin un `OWNER`
+ * explícito, `CREATE DATABASE` deja la base propiedad de la conexión administrativa (p.
+ * ej. `postgres`), y `lf002a_provisioner` no tenía privilegio para crear nada en `public`.
+ * Se corrigió añadiendo `owner "${SPIKE_PROVISIONER_ROLE}"` al `CREATE DATABASE` — ver más
+ * abajo.
  */
 
 export const SPIKE_DATABASE_NAME = 'lf002a_spike';
+export const SPIKE_PROVISIONER_ROLE = 'lf002a_provisioner';
 export const SPIKE_RUNTIME_ROLE = 'lf002a_runtime';
 export const SPIKE_SCHEMA = 'public';
 export const SPIKE_MARKER_TABLE = 'lf002a_lab_marker';
@@ -228,7 +238,15 @@ export async function createSpikeTarget(
   }
   const adminSystemIdentifier = await queryRealSystemIdentifier(adminConn);
 
-  await adminConn.query(`create database "${SPIKE_DATABASE_NAME}"`);
+  // OWNER explícito (hallazgo real de la fase 2, verificado al ejecutarlo contra
+  // PostgreSQL 16 real, no supuesto): sin esto, la base queda propiedad del rol
+  // administrativo (p. ej. `postgres`), y desde PostgreSQL 15 el esquema `public` de una
+  // base nueva YA NO concede CREATE a PUBLIC — `lf002a_provisioner` recibía
+  // "permission denied for schema public" al intentar la primera escritura
+  // (`markLabTargetAsCreated`/`applySchemaSql`). Hacer a `lf002a_provisioner` propietario
+  // de la base le da, por la pertenencia implícita a `pg_database_owner` dentro de ESA
+  // base, los privilegios que necesita sobre `public` sin una concesión aparte.
+  await adminConn.query(`create database "${SPIKE_DATABASE_NAME}" owner "${SPIKE_PROVISIONER_ROLE}"`);
 
   const { conn: newDbConn, close } = await connectToNewDb();
   try {

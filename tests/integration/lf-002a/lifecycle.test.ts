@@ -50,6 +50,7 @@ import {
 import { assertLabTargetAuthorized, verifyLabTarget } from './lab-target.js';
 import { TENANT_PROBE_ROWS } from './fixtures.js';
 import { assertSeedSanity, seedFixtures } from './seed.js';
+import { withTenantContext } from './tenant-context.js';
 import { DEFAULT_LOCK_FILE_PATH, acquireSuiteLock, type SuiteLockHandle } from './suite-lock.js';
 
 describe('LF-002a lifecycle (P15-P16)', () => {
@@ -189,7 +190,23 @@ describe('LF-002a lifecycle (P15-P16)', () => {
     const preflight = await runPreflight(runtimePool);
     expect(preflight).toEqual({ ok: true, reasons: [] });
 
-    const probeCount = await provisionerPool.query<{ n: number }>('select count(*)::int as n from tenant_probe');
-    expect(probeCount.rows[0]?.n).toBe(TENANT_PROBE_ROWS.length);
+    // Fase 2 (mismo hallazgo real que seed.ts/isolation.test.ts): `tenant_probe` recreada
+    // sigue con FORCE RLS, así que un conteo sin contexto del provisionador siempre vería
+    // cero filas, exista la cantidad que exista — no demostraría nada sobre la recreación.
+    // Se suma el conteo real DENTRO del contexto de CADA tenant presente en los fixtures.
+    const probeCountClient = await provisionerPool.connect();
+    let totalProbeCount = 0;
+    try {
+      const tenantIds = new Set(TENANT_PROBE_ROWS.map((row) => row.tenantId));
+      for (const tenantId of tenantIds) {
+        const perTenant = await withTenantContext(probeCountClient, tenantId, (c) =>
+          c.query<{ n: string }>('select count(*)::text as n from tenant_probe where tenant_id = $1', [tenantId]),
+        );
+        totalProbeCount += Number(perTenant.rows[0]?.n ?? 0);
+      }
+    } finally {
+      probeCountClient.release();
+    }
+    expect(totalProbeCount).toBe(TENANT_PROBE_ROWS.length);
   });
 });

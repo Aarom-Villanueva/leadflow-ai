@@ -142,11 +142,20 @@ describe('LF-002a isolation (P02-P09; P01 es precondición obligatoria de before
     }
 
     // Confirmado desde el provisionador, no solo por el código de error del intento.
+    //
+    // Fase 2 (hallazgo real, verificado al ejecutarlo): `tenant_probe` activa `FORCE ROW
+    // LEVEL SECURITY` (defensa en profundidad — ver seed.ts), así que incluso el
+    // provisionador, SIN contexto de tenant fijado, ve siempre cero filas, exista o no la
+    // fila realmente. Una lectura sin contexto aquí pasaría igual de vacía tanto si el
+    // INSERT fue rechazado de verdad como si no lo hubiera sido — no demuestra nada. Para
+    // que la comprobación sea real, se consulta DENTRO del contexto del tenant que el
+    // intento llevaba como `tenant_id` (`TENANT_B`): es el único contexto bajo el que la
+    // fila habría sido visible si WITH CHECK no la hubiera rechazado.
     const provisionerClient = await provisionerPool.connect();
     try {
-      const check = await provisionerClient.query('select 1 from tenant_probe where id = $1', [
-        'probe-foreign-insert-attempt',
-      ]);
+      const check = await withTenantContext(provisionerClient, TENANT_B.tenantId, (c) =>
+        c.query('select 1 from tenant_probe where id = $1', ['probe-foreign-insert-attempt']),
+      );
       expect(check.rowCount).toBe(0);
     } finally {
       provisionerClient.release();
@@ -178,16 +187,22 @@ describe('LF-002a isolation (P02-P09; P01 es precondición obligatoria de before
       client.release();
     }
 
+    // Fase 2 (hallazgo real, verificado al ejecutarlo): FORCE RLS también se aplica aquí —
+    // una lectura del provisionador SIN contexto siempre ve cero filas, exista o no la
+    // fila, así que no puede usarse para confirmar que sigue intacta. Se consulta DENTRO
+    // del contexto real de CADA fila (`probe-b-1` es de `TENANT_B`; `probe-a-1` es de
+    // `TENANT_A`), que es justamente el contexto bajo el que esa fila es visible si (y
+    // solo si) de verdad sigue existiendo sin alterar.
     const provisionerClient = await provisionerPool.connect();
     try {
-      const stillB = await provisionerClient.query('select label, tenant_id from tenant_probe where id = $1', [
-        'probe-b-1',
-      ]);
+      const stillB = await withTenantContext(provisionerClient, TENANT_B.tenantId, (c) =>
+        c.query('select label, tenant_id from tenant_probe where id = $1', ['probe-b-1']),
+      );
       expect(stillB.rows[0]).toEqual({ label: 'B row 1', tenant_id: TENANT_B.tenantId });
 
-      const stillA = await provisionerClient.query('select tenant_id from tenant_probe where id = $1', [
-        'probe-a-1',
-      ]);
+      const stillA = await withTenantContext(provisionerClient, TENANT_A.tenantId, (c) =>
+        c.query('select tenant_id from tenant_probe where id = $1', ['probe-a-1']),
+      );
       expect(stillA.rows[0]?.tenant_id).toBe(TENANT_A.tenantId);
     } finally {
       provisionerClient.release();
@@ -265,11 +280,16 @@ describe('LF-002a isolation (P02-P09; P01 es precondición obligatoria de before
       client.release();
     }
 
+    // Fase 2 (mismo hallazgo real que P04/P05): se consulta dentro del contexto de
+    // `TENANT_A` (el tenant_id con el que se intentó insertar la fila) — el único contexto
+    // bajo el que habría sido visible si el ROLLBACK no hubiera deshecho la escritura de
+    // verdad. Una lectura sin contexto del provisionador pasaría igual de vacía por FORCE
+    // RLS sin importar si el ROLLBACK funcionó.
     const provisionerClient = await provisionerPool.connect();
     try {
-      const check = await provisionerClient.query('select 1 from tenant_probe where id = $1', [
-        'probe-a-rollback-candidate',
-      ]);
+      const check = await withTenantContext(provisionerClient, TENANT_A.tenantId, (c) =>
+        c.query('select 1 from tenant_probe where id = $1', ['probe-a-rollback-candidate']),
+      );
       expect(check.rowCount).toBe(0); // el ROLLBACK deshizo la escritura, no solo el contexto
     } finally {
       provisionerClient.release();

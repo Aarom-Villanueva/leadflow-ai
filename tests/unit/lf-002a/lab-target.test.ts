@@ -270,7 +270,13 @@ describe('lab-target: createSpikeTarget (hallazgo 1, tercera ronda — secuencia
     expect(markCalls[0]).toMatch(/create table if not exists "lf002a_lab_marker"/i);
     expect(markCalls[1]).toMatch(/insert into "lf002a_lab_marker"/i);
     expect(close).toHaveBeenCalledTimes(1);
-    expect(adminConn.calls.some((sql) => /^\s*create database\b/i.test(sql))).toBe(true);
+    const createDatabaseCall = adminConn.calls.find((sql) => /^\s*create database\b/i.test(sql));
+    expect(createDatabaseCall).toBeDefined();
+    // Fase 2 (hallazgo real, verificado al ejecutar createSpikeTarget contra PostgreSQL 16
+    // real — ver lab-target.ts): sin un OWNER explícito, PostgreSQL 15+ deja al rol
+    // administrativo como propietario y revoca CREATE sobre `public` para cualquier otro
+    // rol, así que el provisionador no podía escribir ni siquiera el propio marcador.
+    expect(createDatabaseCall).toMatch(/owner "lf002a_provisioner"/i);
   });
 });
 
