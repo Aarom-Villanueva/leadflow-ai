@@ -327,7 +327,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
     },
     {
       "id": "LF-021",
-      "owner": "Claude",
+      "owner": "ChatGPT",
       "branch": "design/lf-021-executor-sandbox-proposal",
       "state": "active",
       "files": [
@@ -518,7 +518,8 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 
 ## LF-021 — propuesta técnica (solo documentación) de aislamiento local del ejecutor
 
-- Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto de Claude; esta entrega no puede autorrevisarse.
+- Autor inicial: Claude (Claude Code). Responsable actual: ChatGPT en Codex, por relevo autorizado expresamente por el propietario mientras Claude no está disponible. Revisión independiente del candidato corregido: pendiente; ni su autor inicial ni quien modifica esta corrección pueden presentarla como autorrevisada y aprobada.
+- Reserva de la corrección antes de editar: misma tarea LF-021 y rama, base `46c5b4b252dc28173aea95955d86b7c5e40f34db`, candidato recibido `0bcf2036bd89132e1a37b1d8e2b66d60c11b57c4`; alcance limitado a este HANDOFF, `docs/specs/LF-021.md` y `docs/autopilot/LF-001d-EXECUTOR-SANDBOX-PROPOSAL.md`. Objetivo: barrera de arranque verificada antes de ejecutar código no confiable y plan de fallos, solo documentación. El manifiesto SHA-256 de los cinco documentos del PR se registrará en el mensaje del commit de entrega. Claude debe sincronizar el nuevo head antes de retomar, sin editar en paralelo.
 - Rama: `design/lf-021-executor-sandbox-proposal`. Base: `46c5b4b252dc28173aea95955d86b7c5e40f34db` (merge PR #16).
 - Autorización expresa del propietario: inspección de solo lectura del entorno de esta sesión y preparación de documentación que concrete la fila "Tecnología de aislamiento del ejecutor" de la sección 11 de `docs/autopilot/LF-001d-IMPLEMENTATION-DESIGN.md`. Explícitamente NO autoriza instalar herramientas/dependencias, construir infraestructura (namespaces, cgroups, contenedores o VMs reales), ejecutar código no confiable, ni probar escapes.
 - Alcance: `docs/autopilot/LF-001d-EXECUTOR-SANDBOX-PROPOSAL.md` (nuevo) — inspección de solo lectura de **una** sesión concreta de Claude Code Cloud (kernel tipo microVM, Ubuntu 24.04, privilegio/capacidades casi completas desde dentro del shell, sin LSM ni seccomp local detectado, `docker` presente pero sin daemon alcanzable, `runc`/`unshare`/`chroot`/`cgroup`fs v1-híbrido presentes y escribibles pero no construidos ni probados), explícitamente distinguida del equipo del propietario (Windows, no inspeccionado) y de cualquier entorno de producción candidato (sin decidir); propone, sin construirlas, las restricciones de escritura/filesystem/red/procesos/tiempo/memoria/credenciales, un mecanismo de cancelación y recogida de evidencias, los archivos previstos para una implementación futura, un plan de pruebas sintético, la integración con `admission-validator.mjs`/`provider-invocation.mjs` (LF-019) y `pause-controller.mjs` (LF-020), y las decisiones pendientes del propietario. Contrato de esta tarea en `docs/specs/LF-021.md`.
