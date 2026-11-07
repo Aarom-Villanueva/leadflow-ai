@@ -391,7 +391,9 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "tests/unit/lf-002a/suite-lock.test.ts",
         ".gitignore",
         "tests/integration/lf-002a/transaction-instrumentation.ts",
-        "tests/unit/lf-002a/transaction-instrumentation.test.ts"
+        "tests/unit/lf-002a/transaction-instrumentation.test.ts",
+        "package.json",
+        "package-lock.json"
       ]
     }
   ]
@@ -660,3 +662,9 @@ Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto;
 **Resultado incierto del cierre transaccional**: `transaction-instrumentation.ts` registraba incondicionalmente `'rolledback'` cuando COMMIT/ROLLBACK lanzaba una excepción al enviarse — una confirmación inventada, porque la conexión pudo perderse DESPUÉS de que el servidor aplicara el commit. Se añadió un cuarto estado, `'unknown'`, a `TransactionOutcome`: solo `result.command === 'COMMIT'`/`'ROLLBACK'` deciden `'committed'`/`'rolledback'`; cualquier excepción al cerrar o cualquier tag de cierre no reconocido queda como `'unknown'`, conservando el error disponible y limpiando igual el estado de transacción activa (ninguna consulta posterior hereda el identificador de una transacción cuyo cierre quedó incierto). Se corrigió la prueba que exigía `'rolledback'` ante un COMMIT que lanza (ahora exige `'unknown'`) y se añadieron dos regresiones: ROLLBACK con la respuesta perdida, y un tag de cierre inesperado.
 
 Validación real ejecutada en esta ronda: `npx vitest run` → **82/82** pruebas puras en 8 archivos (2 netas más que la ronda anterior; sin archivos nuevos, solo `transaction-instrumentation.ts` y su prueba, ambos ya reservados). `node --test tests/coordination/*.test.mjs` → **217/217**, sin regresión. `npm run lint` → limpio. `npm run typecheck` → 36 errores, mismo patrón exacto de cascada, confirmado línea por línea, ningún error nuevo. Pendiente: las 16 pruebas P01-P16 contra PostgreSQL/Better Auth reales. Revisión independiente del candidato corregido, pendiente, antes de solicitar autorización de fase 2.
+
+## LF-023 — fase 2 autorizada expresamente por el propietario (sobre el candidato `3b4f3cb`)
+
+El propietario autorizó expresamente, sobre `3b4f3cb7db57e363f22898961cd48cedd07acd92`, el alcance completo de fase 2: instalar las dependencias exactas de `docs/specs/LF-023.md` §4.1 y actualizar `package.json`/`package-lock.json` (ambos se añaden ahora a la reserva — antes intactos); verificar e iniciar PostgreSQL 16 local, inventariando y conservando intactas las bases preexistentes; crear exclusivamente `lf002a_spike` y los roles `lf002a_provisioner`/`lf002a_runtime` con separación real entre aprovisionamiento y runtime, deteniéndose sin borrar ni apropiarse de nada si el nombre ya existiera sin procedencia verificable; generar `LF002A_AUTH_SECRET` sintético y efímero en un archivo local ignorado por Git, nunca impreso ni publicado; ejecutar la matriz P01-P16 real contra PostgreSQL/Better Auth y corregir la integración dentro del alcance del spike sin debilitar pruebas; ejecutar las verificaciones generales y comprobar CI sobre el SHA final.
+
+Exclusiones vigentes sin cambios: sin desplegar, sin contratar servicios, sin datos reales, sin proveedores externos; `docs/autopilot/BACKLOG.json` intacto, sin desbloquear tareas; AUTOPILOT y el ejecutor de agentes en pausa; PR #19 permanece en DRAFT, sin fusión ni auto-merge. Detalle completo y resultados reales (aprobado/fallido/omitido, nunca un resultado distinto del observado) en `docs/specs/LF-023.md` §11, actualizado una vez ejecutada la fase 2.
