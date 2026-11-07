@@ -11,13 +11,20 @@
  * sesión/membresía (P10-P14) dan de alta sus propios usuarios reales vía
  * `auth.api.signUpEmail` e insertan sus propias filas de `probe_memberships` para el `id`
  * real devuelto — ver fixtures.ts, hallazgo 4.
+ *
+ * Revisión independiente del PR #19, hallazgo 1 (segunda ronda): "verifica procedencia
+ * antes de seed y cualquier escritura" — `seedFixtures` verificaba el destino solo de
+ * forma indirecta (a través de lo que `isolation.test.ts` ya hubiera comprobado antes de
+ * llamarla). Ahora verifica por sí misma, siempre, antes de insertar nada.
  */
 import type { Pool } from 'pg';
 import { TENANT_PROBE_ROWS } from './fixtures.js';
+import { assertLabTargetAuthorized, verifyLabTarget } from './lab-target.js';
 
 export async function seedFixtures(provisionerPool: Pool): Promise<void> {
   const client = await provisionerPool.connect();
   try {
+    assertLabTargetAuthorized(await verifyLabTarget(client));
     for (const row of TENANT_PROBE_ROWS) {
       await client.query(
         'insert into tenant_probe (id, tenant_id, label) values ($1, $2, $3) on conflict (id) do nothing',

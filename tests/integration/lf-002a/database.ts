@@ -25,8 +25,9 @@ import {
   SPIKE_RUNTIME_ROLE,
   SPIKE_SCHEMA,
   assertLabTargetAuthorized,
-  checkDatabaseNameOnly,
+  markLabTargetAsCreated,
   verifyLabTarget,
+  verifySameServer,
 } from './lab-target.js';
 import {
   evaluatePreflight,
@@ -89,7 +90,10 @@ export function createSpikePool(config: SpikeDatabaseConfig): Pool {
  * controle), que es realmente la base reservada del laboratorio antes de cualquier
  * seed/DDL. A diferencia del diseño anterior, no acepta un "nombre esperado" como
  * parámetro: usa siempre la única constante `SPIKE_DATABASE_NAME`/el marcador de
- * procedencia de lab-target.ts. Lanza si no está autorizado.
+ * procedencia de lab-target.ts. Lanza si no está autorizado. Sin excepción de "solo
+ * nombre" para ningún caso — ni siquiera el primer `applySchemaSql` después de crear la
+ * base (ver `createSpikeDatabaseIfMatching`, que escribe el marcador inmediatamente tras
+ * un `CREATE DATABASE` real, antes de que cualquier otra función toque la base nueva).
  */
 async function assertAuthorizedLabTarget(pool: Pool): Promise<void> {
   const client = await pool.connect();
@@ -100,34 +104,26 @@ async function assertAuthorizedLabTarget(pool: Pool): Promise<void> {
   }
 }
 
-/**
- * Chequeo más ligero, solo por nombre, para la primera aplicación de schema.sql sobre una
- * base recién creada que todavía no puede tener la fila marcadora (exigirla aquí sería
- * circular: nadie la ha escrito todavía). Nunca sustituye a `assertAuthorizedLabTarget`
- * para operaciones posteriores.
- */
-async function assertCandidateDatabaseNameOnly(pool: Pool): Promise<void> {
-  const client = await pool.connect();
-  try {
-    const dbRow = await client.query<{ db: string }>('select current_database() as db');
-    assertLabTargetAuthorized(checkDatabaseNameOnly(dbRow.rows[0]?.db ?? null));
-  } finally {
-    client.release();
-  }
+async function querySystemIdentifier(client: PoolClient): Promise<string> {
+  const result = await client.query<{ sysid: string }>(
+    'select system_identifier::text as sysid from pg_control_system()',
+  );
+  const sysid = result.rows[0]?.sysid;
+  if (!sysid) throw new Error('pg_control_system() did not return a system_identifier');
+  return sysid;
 }
 
 /**
  * Aplica tests/integration/lf-002a/schema.sql tal cual está en disco — la fuente única de
- * verdad del DDL del laboratorio, incluida la fila marcadora de procedencia y los
- * GRANT/REVOKE del rol runtime — en vez de transcribirlo a una cadena separada en TS, para
- * que ambos nunca puedan divergir. Exige primero que el destino sea, al menos por nombre,
- * la base candidata correcta (ver `assertCandidateDatabaseNameOnly`: la verificación
- * completa por marcador no aplica aquí porque la primera aplicación es precisamente lo que
- * escribe ese marcador). Es también la operación segura para RE-aplicar GRANT/REVOKE tras
- * un ciclo de borrado/recreación (P16): toda su DDL usa `if not exists`/es idempotente.
+ * verdad del DDL del laboratorio, incluidos los GRANT/REVOKE del rol runtime — en vez de
+ * transcribirlo a una cadena separada en TS, para que ambos nunca puedan divergir. Exige
+ * SIEMPRE la verificación completa de procedencia (nombre + marcador): no hay ninguna
+ * excepción de "primera aplicación/solo nombre" — una base preexistente ajena que por
+ * coincidencia se llamara `lf002a_spike` pero no tuviera el marcador (porque nunca pasó
+ * por `createSpikeDatabaseIfMatching`) se rechaza aquí, nunca recibe este DDL.
  */
 export async function applySchemaSql(pool: Pool): Promise<void> {
-  await assertCandidateDatabaseNameOnly(pool);
+  await assertAuthorizedLabTarget(pool);
   const schemaPath = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
   const sql = readFileSync(schemaPath, 'utf8');
   const client = await pool.connect();
@@ -275,49 +271,91 @@ export async function getBackendIdentity(client: PoolClient): Promise<BackendIde
 }
 
 /**
- * Crea la única base reservada del laboratorio. Ya no acepta un nombre como parámetro — el
- * hallazgo 2 de la revisión mostró que dos cadenas provistas por quien llama, comparadas
- * entre sí, nunca son prueba de autorización. Quitar el parámetro por completo cierra ese
- * vector: no hay nada que un llamador pueda hacer coincidir consigo mismo. `adminPool` debe
- * apuntar a una base de mantenimiento (p. ej. `postgres`), nunca a la propia base del
- * spike (Postgres no permite crear/soltar la base a la que la conexión está conectada).
+ * Crea la única base reservada del laboratorio y, inmediatamente, le escribe la fila
+ * marcadora de procedencia — la "evidencia de creación controlada" exigida por la segunda
+ * ronda de revisión (hallazgo 1): como Postgres no tiene `CREATE DATABASE IF NOT EXISTS`,
+ * si la base ya existía esta función lanza aquí mismo y NUNCA llega a marcarla, así que
+ * ninguna base preexistente ajena puede adquirir el marcador por esta vía. `adminPool`
+ * debe apuntar a una base de mantenimiento (p. ej. `postgres`), nunca a la propia base del
+ * spike. `targetConnectionStringForNewDb` es la cadena con la que se abrirá, justo después
+ * de crearla, la conexión que escribe el marcador — se verifica que está en el MISMO
+ * servidor que `adminPool` (`system_identifier` real de `pg_control_system()`) antes de
+ * escribir nada: compartir solo el nombre de la base nunca basta (hallazgo 1).
  */
-export async function createSpikeDatabaseIfMatching(adminPool: Pool): Promise<void> {
-  const client = await adminPool.connect();
+export async function createSpikeDatabaseIfMatching(adminPool: Pool, targetConnectionStringForNewDb: string): Promise<void> {
+  const adminClient = await adminPool.connect();
+  let adminSystemIdentifier: string;
   try {
-    const dbRow = await client.query<{ db: string }>('select current_database() as db');
+    const dbRow = await adminClient.query<{ db: string }>('select current_database() as db');
     if (dbRow.rows[0]?.db === SPIKE_DATABASE_NAME) {
       throw new Error('adminPool must connect to a maintenance database, never the spike database itself');
     }
-    await client.query(`create database "${SPIKE_DATABASE_NAME}"`);
+    adminSystemIdentifier = await querySystemIdentifier(adminClient);
+    await adminClient.query(`create database "${SPIKE_DATABASE_NAME}"`);
   } finally {
-    client.release();
+    adminClient.release();
+  }
+
+  const newDbPool = createSpikePool({ connectionString: targetConnectionStringForNewDb, maxConnections: 1 });
+  try {
+    const newDbClient = await newDbPool.connect();
+    try {
+      const targetSystemIdentifier = await querySystemIdentifier(newDbClient);
+      assertLabTargetAuthorized(
+        verifySameServer({ systemIdentifier: adminSystemIdentifier }, { systemIdentifier: targetSystemIdentifier }),
+      );
+      await markLabTargetAsCreated(newDbClient);
+    } finally {
+      newDbClient.release();
+    }
+  } finally {
+    await newDbPool.end();
   }
 }
 
 /**
- * Destruye únicamente la base reservada del laboratorio, y solo tras verificar, por una
- * conexión real a la base candidata (`targetConnectionString`), que es realmente esa base:
- * nombre Y fila marcadora de procedencia (`verifyLabTarget`/`lab-target.ts`) — nunca una
- * comparación de dos cadenas provistas por quien llama (el hallazgo 2 exacto: un doble
- * local confirmó que `dropSpikeDatabaseIfMatching(pool, "postgres", "postgres")` se
- * aceptaba con el diseño anterior). `adminPool` debe apuntar a una base de mantenimiento,
- * nunca a la propia base del spike.
+ * Destruye únicamente la base reservada del laboratorio, y solo tras verificar (a) que la
+ * conexión administrativa y la base candidata están en el MISMO servidor real
+ * (`system_identifier` de `pg_control_system()` — compartir solo el nombre de la base
+ * nunca basta, hallazgo 1 de la segunda ronda) y (b) por una conexión real a la base
+ * candidata (`targetConnectionString`), que es realmente esa base: nombre Y fila marcadora
+ * de procedencia (`verifyLabTarget`/`lab-target.ts`) — nunca una comparación de dos
+ * cadenas provistas por quien llama (el hallazgo 2 original: un doble local confirmó que
+ * `dropSpikeDatabaseIfMatching(pool, "postgres", "postgres")` se aceptaba con el diseño
+ * original). `adminPool` debe apuntar a una base de mantenimiento, nunca a la propia base
+ * del spike.
  */
 export async function dropSpikeDatabaseIfMatching(adminPool: Pool, targetConnectionString: string): Promise<void> {
+  const adminClient = await adminPool.connect();
+  let adminSystemIdentifier: string;
+  try {
+    const dbRow = await adminClient.query<{ db: string }>('select current_database() as db');
+    if (dbRow.rows[0]?.db === SPIKE_DATABASE_NAME) {
+      throw new Error('adminPool must connect to a maintenance database, never the spike database itself');
+    }
+    adminSystemIdentifier = await querySystemIdentifier(adminClient);
+  } finally {
+    adminClient.release();
+  }
+
   const targetPool = createSpikePool({ connectionString: targetConnectionString, maxConnections: 1 });
   try {
-    await assertAuthorizedLabTarget(targetPool);
+    const targetClient = await targetPool.connect();
+    try {
+      const targetSystemIdentifier = await querySystemIdentifier(targetClient);
+      assertLabTargetAuthorized(
+        verifySameServer({ systemIdentifier: adminSystemIdentifier }, { systemIdentifier: targetSystemIdentifier }),
+      );
+      assertLabTargetAuthorized(await verifyLabTarget(targetClient));
+    } finally {
+      targetClient.release();
+    }
   } finally {
     await targetPool.end();
   }
 
   const client = await adminPool.connect();
   try {
-    const dbRow = await client.query<{ db: string }>('select current_database() as db');
-    if (dbRow.rows[0]?.db === SPIKE_DATABASE_NAME) {
-      throw new Error('adminPool must connect to a maintenance database, never the spike database itself');
-    }
     await client.query(
       `select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()`,
       [SPIKE_DATABASE_NAME],

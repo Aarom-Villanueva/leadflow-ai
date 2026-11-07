@@ -52,6 +52,22 @@ describe('query-classifier: classifyQuery', () => {
     const tables = referencedTables('insert into "session" (id, "userId") select id, id from "user"');
     expect([...tables].sort()).toEqual(['session', 'user']);
   });
+
+  test('hallazgo 4 (segunda ronda): reconoce referencias calificadas por esquema, en cualquier combinación de comillas', () => {
+    expect(classifyQuery('select * from "public"."user"')).toBe('identity');
+    expect(classifyQuery('select * from public.tenant_probe')).toBe('tenant');
+    expect(classifyQuery('insert into "public".tenant_probe (id) values ($1)')).toBe('tenant');
+    expect(classifyQuery('update public."user" set "emailVerified" = true')).toBe('identity');
+    expect(classifyQuery('select * from public.probe_memberships')).toBe('tenant');
+  });
+
+  test('hallazgo 4 (segunda ronda): el hallazgo exacto — "public"."user" ya no se clasifica como "other" por capturar "public" como nombre de tabla', () => {
+    // Antes de la corrección, el patrón capturaba literalmente "public" (sin estar en
+    // ningún conjunto cerrado) y clasificaba la consulta como "other", ocultando que en
+    // realidad toca la tabla de identidad "user".
+    expect(classifyQuery('select id from "public"."user" where email = $1')).not.toBe('other');
+    expect(classifyQuery('select id from "public"."user" where email = $1')).toBe('identity');
+  });
 });
 
 describe('query-classifier: sqlMarker', () => {

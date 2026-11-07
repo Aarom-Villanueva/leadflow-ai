@@ -25,6 +25,17 @@
  * autorización. La verificación real de procedencia (nombre + marcador) vive en
  * lab-target.ts, ya probada con dobles en tests/unit/lf-002a/lab-target.test.ts; aquí solo
  * se ejercita el flujo real de punta a punta (no ejecutable todavía).
+ *
+ * Revisión independiente, SEGUNDA ronda (candidato `212e201`), hallazgo 1: además del
+ * nombre y el marcador, el borrado/creación ahora exige que la conexión administrativa y
+ * la candidata estén en el MISMO servidor real (`system_identifier`) — compartir solo el
+ * nombre nunca basta. Hallazgo 5: `vitest.lf-002a.lifecycle.config.ts` (`include`
+ * mutuamente excluyente con `vitest.lf-002a.config.ts`) solo evita que UNA invocación de
+ * Vitest mezcle archivos; no evita dos PROCESOS distintos a la vez. `acquireSuiteLock`
+ * (suite-lock.ts, probado de verdad en tests/unit/lf-002a/suite-lock.test.ts) añade
+ * exclusión real por archivo, adquirida aquí como lo PRIMERO que hace `beforeAll` y
+ * liberada en `afterAll` — el mismo candado que isolation/auth-boundary, así que P16 nunca
+ * puede borrar la base mientras cualquiera de esas dos la tiene tomada, y viceversa.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Pool } from 'pg';
@@ -39,13 +50,20 @@ import {
 import { assertLabTargetAuthorized, verifyLabTarget } from './lab-target.js';
 import { TENANT_PROBE_ROWS } from './fixtures.js';
 import { assertSeedSanity, seedFixtures } from './seed.js';
+import { DEFAULT_LOCK_FILE_PATH, acquireSuiteLock, type SuiteLockHandle } from './suite-lock.js';
 
 describe('LF-002a lifecycle (P15-P16)', () => {
   let maintenancePool: Pool;
   let provisionerPool: Pool;
   let runtimePool: Pool;
+  let lockHandle: SuiteLockHandle | undefined;
 
   beforeAll(async () => {
+    // Lo primero de todo: exclusión real con isolation/auth-boundary (hallazgo 5, segunda
+    // ronda) antes de abrir ningún pool — especialmente importante aquí, ya que P16 borra
+    // la base compartida de verdad.
+    lockHandle = await acquireSuiteLock({ lockFilePath: DEFAULT_LOCK_FILE_PATH });
+
     maintenancePool = createSpikePool({ connectionString: requireEnvUrl('LF002A_MAINTENANCE_URL'), maxConnections: 1 });
     provisionerPool = createSpikePool({ connectionString: requireEnvUrl('LF002A_PROVISIONER_URL'), maxConnections: 1 });
     runtimePool = createSpikePool({ connectionString: requireEnvUrl('LF002A_RUNTIME_URL'), maxConnections: 1 });
@@ -63,6 +81,7 @@ describe('LF-002a lifecycle (P15-P16)', () => {
     await maintenancePool?.end();
     await provisionerPool?.end();
     await runtimePool?.end();
+    lockHandle?.release();
   });
 
   // --- P15: control negativo del propio preflight -----------------------------
@@ -113,6 +132,33 @@ describe('LF-002a lifecycle (P15-P16)', () => {
     expect(afterRestoring).toEqual({ ok: true, reasons: [] });
   });
 
+  // --- P15b: control negativo — política permisiva "OR true" (hallazgo 2, segunda ronda) --
+  test('P15b: una política reescrita con "OR true" (siempre verdadera) es detectada por el preflight, nunca aceptada por contener la subcadena correcta', async () => {
+    const rewriteClient = await provisionerPool.connect();
+    try {
+      await rewriteClient.query('drop policy if exists tenant_probe_isolation on tenant_probe');
+      await rewriteClient.query(`
+        create policy tenant_probe_isolation on tenant_probe
+          using (tenant_id = current_setting('app.tenant_id', true) or true)
+          with check (tenant_id = current_setting('app.tenant_id', true))
+      `);
+      const withOrTrue = await runPreflight(runtimePool);
+      expect(withOrTrue.ok).toBe(false);
+      expect(withOrTrue.reasons).toContain('permissive_policy_without_tenant_condition:tenant_probe_isolation');
+    } finally {
+      await rewriteClient.query('drop policy if exists tenant_probe_isolation on tenant_probe');
+      await rewriteClient.query(`
+        create policy tenant_probe_isolation on tenant_probe
+          using (tenant_id = current_setting('app.tenant_id', true))
+          with check (tenant_id = current_setting('app.tenant_id', true))
+      `);
+      rewriteClient.release();
+    }
+
+    const restored = await runPreflight(runtimePool);
+    expect(restored).toEqual({ ok: true, reasons: [] });
+  });
+
   // --- P16: ciclo real de borrado/recreación ------------------------------------
   test('P16: solo la base identificada se borra; un ciclo limpio de recreación restablece propiedad/permisos/esquema/fixtures', async () => {
     // El borrado exige verificación real de procedencia contra la base candidata (nombre Y
@@ -127,7 +173,7 @@ describe('LF-002a lifecycle (P15-P16)', () => {
     );
     expect(goneCheck.rows[0]?.n).toBe(0);
 
-    await createSpikeDatabaseIfMatching(maintenancePool);
+    await createSpikeDatabaseIfMatching(maintenancePool, requireEnvUrl('LF002A_PROVISIONER_URL'));
 
     // applySchemaSql reaplica TODO el DDL idempotente de schema.sql, incluidos los
     // GRANT/REVOKE del rol runtime (hallazgo 6: un CREATE DATABASE nuevo no hereda los

@@ -121,6 +121,81 @@ describe('preflight-policy: evaluatePreflight', () => {
     expect(result.reasons).toContain('permissive_policy_without_tenant_condition:too_open');
   });
 
+  test('hallazgo 2 (segunda ronda): rechaza "tenant_id = current_setting(...) OR true" — contiene la subcadena correcta pero es siempre verdadera', () => {
+    const result = evaluatePreflight(
+      baseInputs({
+        policies: [
+          {
+            policyName: 'or_true_bypass',
+            permissive: true,
+            roles: ['public'],
+            cmd: 'ALL',
+            usingExpr: "tenant_id = current_setting('app.tenant_id', true) OR true",
+            withCheckExpr: "tenant_id = current_setting('app.tenant_id', true)",
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reasons).toContain('permissive_policy_without_tenant_condition:or_true_bypass');
+  });
+
+  test('hallazgo 2 (segunda ronda): rechaza también cuando el OR true está en WITH CHECK en vez de USING', () => {
+    const result = evaluatePreflight(
+      baseInputs({
+        policies: [
+          {
+            policyName: 'or_true_in_with_check',
+            permissive: true,
+            roles: ['public'],
+            cmd: 'ALL',
+            usingExpr: "tenant_id = current_setting('app.tenant_id', true)",
+            withCheckExpr: "tenant_id = current_setting('app.tenant_id', true) OR true",
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reasons).toContain('permissive_policy_without_tenant_condition:or_true_in_with_check');
+  });
+
+  test('rechaza otras variantes que contienen la subcadena correcta pero añaden condiciones no verificables (AND true, comparación distinta)', () => {
+    const variants = [
+      "tenant_id = current_setting('app.tenant_id', true) AND true",
+      "tenant_id = current_setting('app.other_key', true)",
+      "tenant_id <> current_setting('app.tenant_id', true)",
+      "tenant_id = current_setting('app.tenant_id', false)",
+    ];
+    for (const usingExpr of variants) {
+      const result = evaluatePreflight(
+        baseInputs({
+          policies: [
+            { policyName: 'variant', permissive: true, roles: ['public'], cmd: 'ALL', usingExpr, withCheckExpr: usingExpr },
+          ],
+        }),
+      );
+      expect(result.reasons).toContain('permissive_policy_without_tenant_condition:variant');
+    }
+  });
+
+  test('acepta las formas realistas que el deparser de Postgres (pg_get_expr) probablemente produce: paréntesis envolventes y ::text explícito', () => {
+    const realisticForms = [
+      "tenant_id = current_setting('app.tenant_id', true)",
+      "(tenant_id = current_setting('app.tenant_id', true))",
+      "(tenant_id = current_setting('app.tenant_id'::text, true))",
+    ];
+    for (const usingExpr of realisticForms) {
+      const result = evaluatePreflight(
+        baseInputs({
+          policies: [
+            { policyName: 'tenant_probe_isolation', permissive: true, roles: ['public'], cmd: 'ALL', usingExpr, withCheckExpr: usingExpr },
+          ],
+        }),
+      );
+      expect(result).toEqual({ ok: true, reasons: [] });
+    }
+  });
+
   test('una política RESTRICTIVE sin condición de tenant no se marca como abriendo acceso (restrictiva solo puede negar)', () => {
     const result = evaluatePreflight(
       baseInputs({

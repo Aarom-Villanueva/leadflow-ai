@@ -11,12 +11,23 @@
  * FROM/INTO/UPDATE/TABLE/JOIN y los compara contra el conjunto CERRADO de tablas del
  * laboratorio — demuestra qué tabla toca la consulta, no solo si una palabra aparece en
  * cualquier parte de su texto.
+ *
+ * Revisión independiente del PR #19, hallazgo 4 (segunda ronda sobre el candidato
+ * `212e201`): el patrón anterior no reconocía una referencia calificada por esquema
+ * (`"public"."user"`, `public.tenant_probe`, `public."user"`) — para `from "public"."user"`
+ * capturaba literalmente `public` como si fuera el nombre de la tabla (ni identidad ni
+ * tenant en el conjunto cerrado), clasificando mal una consulta de identidad real como
+ * `other`. El patrón ahora consume un prefijo de esquema opcional (con o sin comillas en
+ * cada parte, independientemente) antes de capturar el nombre de tabla real — verificado
+ * con casos concretos antes de fijarlo, no solo revisado a ojo (ver
+ * tests/unit/lf-002a/query-classifier.test.ts).
  */
 
 export const IDENTITY_TABLES: ReadonlySet<string> = new Set(['user', 'session', 'account', 'verification']);
 export const TENANT_TABLES: ReadonlySet<string> = new Set(['probe_memberships', 'tenant_probe']);
 
-const TABLE_REFERENCE_PATTERN = /\b(?:from|into|update|table|join)\s+"?([a-zA-Z_][a-zA-Z0-9_]*)"?/gi;
+const TABLE_REFERENCE_PATTERN =
+  /\b(?:from|into|update|table|join)\s+(?:"?[a-zA-Z_][a-zA-Z0-9_]*"?\s*\.\s*)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/gi;
 
 export type QueryClassification = 'identity' | 'tenant' | 'other';
 

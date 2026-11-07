@@ -13,6 +13,18 @@
  * ejecutable todavía). La decisión es puramente una función de las filas ya obtenidas, así
  * que es ejecutable y probable ahora mismo con filas fabricadas a mano, sin instalar `pg`
  * ni conectar nada (ver tests/unit/lf-002a/preflight-policy.test.ts).
+ *
+ * Revisión independiente del PR #19, hallazgo 2 (segunda ronda sobre el candidato
+ * `212e201`): la primera corrección comprobaba solo que la subcadena
+ * `current_setting('app.tenant_id'...)` APARECIERA en la expresión — una política con
+ * `using (tenant_id = current_setting('app.tenant_id', true) OR true)` contiene esa
+ * subcadena y se aceptaba igual, pese a ser siempre verdadera (abre acceso total). Ya no
+ * basta "contener": `isSafeTenantExpression` exige que la expresión COMPLETA (ignorando
+ * solo espacios, paréntesis envolventes y un `::text` que el propio deparser de Postgres
+ * suele añadir) coincida con la única forma exacta que `schema.sql` declara. Cualquier
+ * condición adicional — un `OR`, un `AND`, una comparación distinta — queda fuera del
+ * patrón anclado de principio a fin (`^...$`) y se rechaza: "rechaza condiciones... cuya
+ * seguridad no puedas establecer", nunca se intenta razonar sobre SQL arbitrario.
  */
 
 export interface ConnectedIdentity {
@@ -83,7 +95,18 @@ export interface PreflightResult {
   readonly reasons: readonly string[];
 }
 
-const REQUIRED_TENANT_CONTEXT_PATTERN = /current_setting\s*\(\s*'app\.tenant_id'/i;
+// Anclado de principio a fin (^...$): acepta ÚNICAMENTE la forma exacta que schema.sql
+// declara (con paréntesis envolventes y/o un `::text` opcionales, que el deparser de
+// Postgres suele añadir) — nunca "contiene la subcadena correcta en algún lugar". Una
+// condición adicional (`OR true`, `AND algo`, cualquier otra comparación) queda fuera del
+// ancla y rechaza la expresión completa.
+const SAFE_TENANT_EXPRESSION_PATTERN =
+  /^\(*\s*tenant_id\s*=\s*current_setting\(\s*'app\.tenant_id'(?:::text)?\s*,\s*true\s*\)\s*\)*$/i;
+
+function isSafeTenantExpression(expr: string | null): boolean {
+  return expr !== null && SAFE_TENANT_EXPRESSION_PATTERN.test(expr.trim());
+}
+
 const REQUIRED_COMMANDS: readonly PolicyCommand[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 
 function commandsCoveredBy(cmd: PolicyCommand): readonly PolicyCommand[] {
@@ -156,9 +179,9 @@ export function evaluatePreflight(inputs: PreflightInputs): PreflightResult {
 
       for (const covered of commandsCoveredBy(policy.cmd)) commandsCovered.add(covered);
 
-      const usingOk = policy.usingExpr !== null && REQUIRED_TENANT_CONTEXT_PATTERN.test(policy.usingExpr);
+      const usingOk = isSafeTenantExpression(policy.usingExpr);
       const checkNeeded = policy.cmd === 'ALL' || policy.cmd === 'INSERT' || policy.cmd === 'UPDATE';
-      const checkOk = !checkNeeded || (policy.withCheckExpr !== null && REQUIRED_TENANT_CONTEXT_PATTERN.test(policy.withCheckExpr));
+      const checkOk = !checkNeeded || isSafeTenantExpression(policy.withCheckExpr);
 
       // Una política PERMISSIVE sin una condición de tenant verificable en USING (o en
       // WITH CHECK cuando el comando lo exige) es exactamente la "política permisiva que

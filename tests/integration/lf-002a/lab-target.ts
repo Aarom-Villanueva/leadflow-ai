@@ -1,34 +1,41 @@
 /**
  * Fuente única de verdad del destino autorizado del laboratorio LF-002a/LF-023, y
  * verificación de procedencia real antes de cualquier operación destructiva o de
- * escritura de esquema — hallazgo 2 de la revisión independiente del PR #19.
+ * escritura de esquema — hallazgo 2 de la revisión independiente del PR #19, endurecido
+ * por el hallazgo 1 de la segunda ronda de revisión sobre el candidato `212e201`.
  *
- * El diseño anterior de `dropSpikeDatabaseIfMatching` aceptaba dos cadenas provistas por
- * quien llama (`expectedDatabaseName`, `confirmedDatabaseName`) y solo comparaba que
- * fueran iguales entre sí. Un doble local demostró el fallo exacto: si ambos argumentos
- * son `"postgres"`, la función los acepta como "coincidentes" y procede — dos cadenas
- * iguales nunca son, por sí solas, prueba de autorización, sobre todo cuando ambas las
- * controla la misma llamada.
+ * El diseño original de `dropSpikeDatabaseIfMatching` aceptaba dos cadenas provistas por
+ * quien llama y solo comparaba que fueran iguales entre sí (bypass confirmado con un
+ * doble: dos "postgres" se aceptaban). La primera corrección fijó el nombre esperado como
+ * una única constante y exigió una fila marcadora de procedencia — pero dejó dos huecos
+ * reales, cerrados aquí:
  *
- * Este módulo corrige eso de dos maneras:
- * 1. El nombre esperado deja de ser un parámetro: es una única constante exportada
- *    (`SPIKE_DATABASE_NAME`), para que nunca pueda compararse contra sí misma por error.
- * 2. Antes de cualquier operación destructiva, se exige una comprobación de PROCEDENCIA
- *    real contra el propio servidor: además de `current_database() = SPIKE_DATABASE_NAME`,
- *    se exige una fila marcadora (`SPIKE_MARKER_TABLE`/`SPIKE_MARKER_VALUE`) que solo la
- *    propia inicialización de este laboratorio (`schema.sql`, aplicado por
- *    `applySchemaSql` en database.ts) habría escrito. Una base preexistente, ajena, que
- *    coincidiera por casualidad en el nombre nunca tendría esa fila — se rechaza.
- * 3. Las bases de sistema (`postgres`, `template0`, `template1`) se rechazan siempre,
- *    incluso si por un error futuro `SPIKE_DATABASE_NAME` llegara a coincidir con una
- *    (chequeo en tiempo de módulo, no solo en tiempo de ejecución).
+ * 1. La conexión que VERIFICA procedencia (contra la base candidata) y la conexión
+ *    ADMINISTRATIVA que de verdad ejecuta el DROP/CREATE nunca se comprobaban como el
+ *    MISMO servidor — compartir el nombre de base no prueba que ambas apunten al mismo
+ *    clúster. `verifySameServer` compara el `system_identifier` real de PostgreSQL
+ *    (`pg_control_system()`, estable y único por clúster desde `initdb`) de ambas
+ *    conexiones antes de confiar en cualquier operación que combine las dos.
+ * 2. El "bootstrap" (primera aplicación de schema.sql sobre una base recién creada, que
+ *    todavía no puede tener la fila marcadora) se resolvía con una excepción general por
+ *    nombre — una base preexistente y ajena que por pura coincidencia se llamara
+ *    `lf002a_spike` pasaba igual esa excepción. Ahora no existe ninguna excepción por
+ *    nombre: `markLabTargetAsCreated` es la ÚNICA función de todo el código que escribe la
+ *    fila marcadora, y solo se invoca (desde `database.ts#createSpikeDatabaseIfMatching`)
+ *    justo después de que un `CREATE DATABASE` del nombre reservado haya tenido éxito de
+ *    verdad — si la base ya existía, `CREATE DATABASE` lanza y este código nunca se
+ *    alcanza. `applySchemaSql`/`seedFixtures`/cualquier escritura posterior exigen siempre
+ *    la verificación COMPLETA (`verifyLabTarget`: nombre + marcador), sin ninguna
+ *    excepción de arranque.
  *
  * Puro, sin importaciones externas: `QueryableConnection` es la única superficie que este
  * módulo necesita de una conexión real (`pg.PoolClient`/`pg.Pool` la satisfacen
- * estructuralmente, ya que ambos exponen `.query(sql, params)` devolviendo
- * `{rows, rowCount}` — pero este módulo nunca importa `pg`), así que es ejecutable y
- * probable ahora mismo con dobles de prueba, sin instalar nada
- * (ver tests/unit/lf-002a/lab-target.test.ts).
+ * estructuralmente) — así que es ejecutable y probado ya mismo con dobles de prueba, sin
+ * instalar nada (ver tests/unit/lf-002a/lab-target.test.ts). Limitación explícita: esta
+ * marca es un valor fijo, no un nonce criptográfico — protege contra una base ajena
+ * preexistente sin marcador (el riesgo real reportado), no contra un atacante con acceso
+ * de escritura simultáneo al mismo clúster reproduciendo el valor exacto; ese nivel de
+ * amenaza excede el alcance de un laboratorio descartable solo-loopback.
  */
 
 export const SPIKE_DATABASE_NAME = 'lf002a_spike';
@@ -55,19 +62,24 @@ export interface LabTargetVerification {
   readonly reasons: readonly string[];
 }
 
+export interface ServerIdentity {
+  readonly systemIdentifier: string;
+}
+
 /**
- * Chequeo puro, solo por nombre (sin conexión ni marcador): la base candidata para
- * CREATE DATABASE o para la primera aplicación de schema.sql sobre una base recién creada
- * (que todavía no puede tener la fila marcadora — sería circular exigirla ahí). Nunca
- * sustituye a `verifyLabTarget` para operaciones posteriores (seed, DDL repetido,
- * alteración de políticas, DROP): esas exigen también el marcador de procedencia.
+ * Compara el `system_identifier` real de dos conexiones (obtenido por quien llama vía
+ * `select system_identifier::text from pg_control_system()`, no por este módulo — puro,
+ * sin `pg`). Única forma fiable de confirmar que una conexión "administrativa" (p. ej. a
+ * la base de mantenimiento `postgres`) y una conexión "candidata" (a la base del spike)
+ * pertenecen al MISMO clúster físico de PostgreSQL — compartir solo el nombre de la base
+ * nunca es suficiente (hallazgo 1, segunda ronda).
  */
-export function checkDatabaseNameOnly(actualDatabaseName: string | null): LabTargetVerification {
-  if (actualDatabaseName === null || FORBIDDEN_DATABASE_NAMES.has(actualDatabaseName)) {
-    return { ok: false, reasons: [`refusing_system_database:${actualDatabaseName}`] };
-  }
-  if (actualDatabaseName !== SPIKE_DATABASE_NAME) {
-    return { ok: false, reasons: [`unexpected_database:${actualDatabaseName}`] };
+export function verifySameServer(adminIdentity: ServerIdentity, targetIdentity: ServerIdentity): LabTargetVerification {
+  if (adminIdentity.systemIdentifier !== targetIdentity.systemIdentifier) {
+    return {
+      ok: false,
+      reasons: [`admin_and_target_different_server:${adminIdentity.systemIdentifier}!=${targetIdentity.systemIdentifier}`],
+    };
   }
   return { ok: true, reasons: [] };
 }
@@ -77,14 +89,20 @@ export function checkDatabaseNameOnly(actualDatabaseName: string | null): LabTar
  * módulo nunca decide a qué base conectarse), que es realmente la base reservada del
  * laboratorio: nombre correcto Y marcador de procedencia presente. No emite ninguna
  * sentencia de escritura/DDL: solo SELECT de solo lectura contra catálogos y la tabla
- * marcadora.
+ * marcadora. Nunca tiene una excepción "solo por nombre": si la fila marcadora no está,
+ * se rechaza, sin importar si el nombre coincide.
  */
 export async function verifyLabTarget(conn: QueryableConnection): Promise<LabTargetVerification> {
   const reasons: string[] = [];
 
   const dbRow = await conn.query<{ db: string }>('select current_database() as db');
-  const nameCheck = checkDatabaseNameOnly(dbRow.rows[0]?.db ?? null);
-  if (!nameCheck.ok) return nameCheck;
+  const actualDatabaseName = dbRow.rows[0]?.db ?? null;
+  if (actualDatabaseName === null || FORBIDDEN_DATABASE_NAMES.has(actualDatabaseName)) {
+    return { ok: false, reasons: [`refusing_system_database:${actualDatabaseName}`] };
+  }
+  if (actualDatabaseName !== SPIKE_DATABASE_NAME) {
+    return { ok: false, reasons: [`unexpected_database:${actualDatabaseName}`] };
+  }
 
   let markerRow: { rows: Array<{ created_for: string }> };
   try {
@@ -101,6 +119,26 @@ export async function verifyLabTarget(conn: QueryableConnection): Promise<LabTar
   }
 
   return { ok: reasons.length === 0, reasons };
+}
+
+/**
+ * Escribe la fila marcadora de procedencia. **La única función de todo el laboratorio que
+ * escribe algo en lab-target.ts.** Debe llamarse EXCLUSIVAMENTE justo después de que un
+ * `CREATE DATABASE` del nombre reservado (`SPIKE_DATABASE_NAME`) haya tenido éxito de
+ * verdad, sobre una conexión recién abierta hacia esa base concreta — nunca sobre una base
+ * que pudiera haber existido de antes: si `CREATE DATABASE` falla porque ya existe (el
+ * comportamiento normal de Postgres: no hay `CREATE DATABASE IF NOT EXISTS`), el código
+ * que llama a esta función nunca se alcanza (ver database.ts#createSpikeDatabaseIfMatching).
+ * Esa es la "evidencia de creación controlada" exigida: ninguna base puede tener una marca
+ * válida salvo que haya pasado, en este mismo proceso, por un `CREATE DATABASE` que
+ * realmente tuvo éxito.
+ */
+export async function markLabTargetAsCreated(conn: QueryableConnection): Promise<void> {
+  await conn.query(`create table if not exists "${SPIKE_MARKER_TABLE}" (created_for text primary key)`);
+  await conn.query(
+    `insert into "${SPIKE_MARKER_TABLE}" (created_for) values ($1) on conflict (created_for) do nothing`,
+    [SPIKE_MARKER_VALUE],
+  );
 }
 
 /** Lanza si la verificación no pasó — para usar como guarda obligatoria antes de cualquier

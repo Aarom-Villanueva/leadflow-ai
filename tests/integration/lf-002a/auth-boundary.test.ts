@@ -14,26 +14,47 @@
  *   produce manipulando una sesión REAL emitida por `auth.api.signUpEmail` y se verifica
  *   siempre con una llamada REAL a `auth.api.getSession`, nunca una etiqueta inventada.
  *   Resultado y errores de cada llamada se comprueban explícitamente, nunca se ignoran.
- * - Hallazgo 5: P13 usa `createClientScopedAuth` para demostrar, con el backend/
- *   transactionId REAL de la instrumentación (auth.ts/query-classifier.ts), si las
- *   consultas del adaptador comparten la misma transacción que un contexto de tenant ya
- *   abierto en la MISMA conexión — y, por separado, confirma que el caso normal (pool
- *   compartido, sin compartir cliente deliberadamente) nunca las mezcla, sin arriesgar un
- *   deadlock del pool (ver comentarios en cada escenario).
+ * - Hallazgo 5: P13 usa `createClientScopedAuth` para demostrar, con el backend/instante de
+ *   transacción real de la instrumentación (auth.ts/query-classifier.ts), si las consultas
+ *   del adaptador comparten la misma transacción que un contexto de tenant ya abierto en la
+ *   MISMA conexión — y, por separado, confirma que el caso normal (pool compartido, sin
+ *   compartir cliente deliberadamente) nunca las mezcla, sin arriesgar un deadlock del pool.
  * - Hallazgo 5 (P14): se conecta `databaseHooks.user.create.after` (ver auth.ts) a una
  *   escritura de membresía autorizada vía `withTenantContext` — nunca una escritura directa
  *   sin pasar por el wrapper — y se confirma POSITIVAMENTE que la fila quedó creada con el
- *   tenant correcto, no solo que "ninguna consulta tocó probe_memberships" (esa
- *   comprobación por sí sola no demuestra cobertura suficiente).
+ *   tenant correcto, no solo que "ninguna consulta tocó probe_memberships".
+ *
+ * Revisión independiente, SEGUNDA ronda (sobre el candidato `212e201`), hallazgo 3:
+ * - El hook `onUserCreated` (P14) estaba conectado a la MISMA instancia de Better Auth
+ *   compartida por P10-P13 en `beforeAll` — cualquier alta real en esas pruebas disparaba
+ *   también el hook, dándole a todo usuario una membresía automática en `TENANT_A`. Eso
+ *   invalidaba P11 (el usuario "sin membresía" en realidad SÍ tenía una, creada por el
+ *   hook) y hacía que P12 intentara insertar una SEGUNDA fila para el mismo
+ *   `("userId", tenant_id)` que la que el hook ya había creado, violando el índice único.
+ *   Ahora el hook se configura en una instancia de Better Auth SEPARADA, creada solo
+ *   dentro de la propia prueba P14 — P10-P13 usan la instancia compartida sin hook alguno,
+ *   así que un alta ahí nunca crea membresía por sí misma.
+ * - Se añade la revocación REAL de sesión (vía `auth.api.signOut`) anunciada pero nunca
+ *   implementada en la ronda anterior — comprobando su resultado y la consulta posterior
+ *   con `getSession`, nunca una etiqueta declarada.
+ * - `realGetSession` ya no convierte cualquier excepción en "sesión inválida": si
+ *   `auth.api.getSession` lanza de forma inesperada (en vez de devolver una ausencia de
+ *   sesión documentada), la prueba debe fallar visiblemente, no disfrazar un error propio
+ *   como si fuera un resultado de autenticación legítimo.
+ * - Los mensajes de error ya nunca incluyen `JSON.stringify(result)`: podría imprimir un
+ *   token de sesión u otro dato sensible devuelto por la API real. Solo se describen los
+ *   NOMBRES de clave presentes, nunca sus valores.
  *
  * Advertencia explícita (a diferencia del esquema de tablas, verificado por lectura
  * directa del código fuente — docs/specs/LF-023.md §3): la forma exacta de la API de
- * servidor de `better-auth@1.7.18` (`auth.api.signUpEmail`/`getSession`/`signOut`, y el
- * formato de cabecera que `getSession` espera para un token de sesión) se escribió según
- * el patrón público conocido de Better Auth, pero **no se verificó ejecutándola** contra
- * el paquete instalado, porque no está instalado en esta fase. Si la fase 2 encuentra una
- * forma distinta, este archivo debe corregirse para usar la real — nunca inventar un
- * resultado sin haberlo ejecutado.
+ * servidor de `better-auth@1.7.18` (`auth.api.signUpEmail`/`getSession`/`signOut`, el
+ * formato de cabecera que `getSession` espera para un token de sesión, y si lanza o
+ * devuelve una ausencia de sesión documentada) se escribió según el patrón público
+ * conocido de Better Auth, pero **no se verificó ejecutándola** contra el paquete
+ * instalado, porque no está instalado en esta fase. Esto está escrito, no ejecutado, y
+ * pendiente de verificar contra Better Auth real: si la fase 2 encuentra una forma
+ * distinta, este archivo debe corregirse para usar la real — nunca inventar un resultado
+ * sin haberlo ejecutado.
  */
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import type { Pool } from 'pg';
@@ -42,6 +63,7 @@ import { authorizeTenantSelection, deriveSessionVerificationOutcome, withTenantC
 import { createClientScopedAuth, createInstrumentedAuth, type AuthInstrumentation } from './auth.js';
 import { assertSeedSanity, seedFixtures } from './seed.js';
 import { TENANT_A, TENANT_B } from './fixtures.js';
+import { DEFAULT_LOCK_FILE_PATH, acquireSuiteLock, type SuiteLockHandle } from './suite-lock.js';
 
 function requireAuthSecret(): string {
   const secret = process.env.LF002A_AUTH_SECRET;
@@ -71,9 +93,16 @@ async function insertMembership(
 ): Promise<void> {
   const client = await provisionerPool.connect();
   try {
+    // on conflict do nothing como defensa en profundidad (hallazgo 3, segunda ronda): con
+    // el hook de P14 ya aislado a su propia instancia de Better Auth (ver beforeAll), esta
+    // inserción ya no debería competir con ninguna otra escritura para el mismo
+    // ("userId", tenant_id) — pero una inserción directa sin manejo de conflicto, como
+    // tenía antes, lanzaría en vez de ser idempotente si algo más llegara a insertar la
+    // misma fila primero.
     await client.query(
       `insert into probe_memberships (id, "userId", tenant_id, role, revoked_at)
-       values ($1, $2, $3, $4, $5)`,
+       values ($1, $2, $3, $4, $5)
+       on conflict ("userId", tenant_id) do nothing`,
       [`probe-membership-${userId}-${tenantId}`, userId, tenantId, role, revoked ? new Date() : null],
     );
   } finally {
@@ -88,8 +117,13 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
   let instrumentation: AuthInstrumentation;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let auth: any;
+  let lockHandle: SuiteLockHandle | undefined;
 
   beforeAll(async () => {
+    // Lo primero de todo: exclusión real con lifecycle.test.ts (hallazgo 5, segunda ronda)
+    // antes de abrir ningún pool — ver suite-lock.ts.
+    lockHandle = await acquireSuiteLock({ lockFilePath: DEFAULT_LOCK_FILE_PATH });
+
     const provisionerUrl = requireEnvUrl('LF002A_PROVISIONER_URL');
     const runtimeUrl = requireEnvUrl('LF002A_RUNTIME_URL');
 
@@ -108,28 +142,14 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
       throw new Error(`P01 preflight failed, refusing to run any lab case: ${preflight.reasons.join(', ')}`);
     }
 
+    // Instancia COMPARTIDA, SIN ningún hook — hallazgo 3, segunda ronda: conectar
+    // `onUserCreated` aquí afectaría a TODAS las altas de P10-P13, dándoles membresía
+    // automática y rompiendo tanto el "sin membresía" de P11 como el conteo esperado de
+    // filas de P12. Solo P14 crea su PROPIA instancia, con su propio hook, dentro de su
+    // propio test — ver más abajo.
     const created = createInstrumentedAuth(authPool, {
       secret: requireAuthSecret(),
       baseURL: 'http://127.0.0.1:0',
-      onUserCreated: async (user) => {
-        // P14: ruta alternativa autorizada (ver auth.ts CreateAuthOptions — Better Auth no
-        // tiene un hook nativo para una tabla de membresías propia). Nunca una escritura
-        // directa sin wrapper: pasa por `withTenantContext`, igual que cualquier otra
-        // escritura de tenant_probe en el resto de la suite.
-        const client = await runtimePool.connect();
-        try {
-          await withTenantContext(client, TENANT_A.tenantId, async (c) => {
-            await c.query(
-              `insert into probe_memberships (id, "userId", tenant_id, role)
-               values ($1, $2, $3, $4)
-               on conflict ("userId", tenant_id) do nothing`,
-              [`probe-membership-hook-${user.id}`, user.id, TENANT_A.tenantId, 'owner'],
-            );
-          });
-        } finally {
-          client.release();
-        }
-      },
     });
     auth = created.auth;
     instrumentation = created.instrumentation;
@@ -139,16 +159,21 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
     await provisionerPool?.end();
     await runtimePool?.end();
     await authPool?.end();
+    lockHandle?.release();
   });
 
   async function realSignUp(email: string, password: string): Promise<{ userId: string; sessionToken: string }> {
     const result = await auth.api.signUpEmail({ body: { email, password, name: 'LF-002a test user' } });
     // Nunca se ignora el resultado: si no trae un id de usuario real, la prueba falla aquí
-    // con un mensaje claro, no sigue adelante con un valor inventado.
+    // con un mensaje claro, no sigue adelante con un valor inventado. El mensaje nunca
+    // incluye el propio `result` (hallazgo 3, segunda ronda: `JSON.stringify(result)`
+    // podría imprimir un token de sesión u otro dato sensible) — solo los NOMBRES de
+    // clave presentes en el nivel superior, nunca sus valores.
     const userId: string | undefined = result?.user?.id;
     const sessionToken: string | undefined = result?.session?.token ?? result?.token;
     if (!userId || !sessionToken) {
-      throw new Error(`signUpEmail no devolvió user.id/session.token reales para ${email}: ${JSON.stringify(result)}`);
+      const presentKeys = result && typeof result === 'object' ? Object.keys(result).join(', ') : String(result);
+      throw new Error(`signUpEmail no devolvió user.id/session.token reales para ${email} (claves presentes: ${presentKeys})`);
     }
     return { userId, sessionToken };
   }
@@ -162,15 +187,19 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
     return new Headers({ authorization: `Bearer ${token}` });
   }
 
+  /**
+   * Llamada REAL a `auth.api.getSession`, sin capturar ninguna excepción (hallazgo 3,
+   * segunda ronda: "no conviertas errores inesperados... en rechazos válidos de
+   * autenticación"). No se sabe todavía, sin haberlo ejecutado, si esta versión de Better
+   * Auth lanza o devuelve una ausencia de sesión documentada (p. ej. `null`/`{session:
+   * null}`) para un token inválido/expirado/revocado — `deriveSessionVerificationOutcome`
+   * ya maneja el caso de un valor de retorno sin sesión. Si en cambio LANZA de forma
+   * inesperada, esta función deja que esa excepción se propague: la prueba debe fallar
+   * visiblemente para exponer esa incertidumbre real, nunca disfrazarla como si fuera un
+   * resultado de autenticación válido.
+   */
   async function realGetSession(token: string): Promise<unknown> {
-    try {
-      return await auth.api.getSession({ headers: headersForToken(token) });
-    } catch {
-      // Un token que nunca existió, o una sesión inválida, puede rechazarse lanzando en
-      // vez de devolver null, dependiendo de la versión — ambos casos se tratan igual:
-      // "no hay sesión válida", nunca un resultado inventado.
-      return null;
-    }
+    return await auth.api.getSession({ headers: headersForToken(token) });
   }
 
   // --- P10: estados de sesión reales ------------------------------------------
@@ -210,12 +239,29 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
     );
     expect(expiredOutcome.kind).not.toBe('valid');
 
+    // Revocación REAL (hallazgo 3, segunda ronda — anunciada pero no implementada en la
+    // ronda anterior): sesión fresca propia, revocada vía `auth.api.signOut` real,
+    // comprobando su resultado explícitamente (nunca ignorado), y verificada de nuevo con
+    // una llamada real a getSession usando el MISMO token ya revocado.
+    const revocationCandidate = await realSignUp(uniqueEmail('p10-revocation'), syntheticPassword());
+    const signOutResult = await auth.api.signOut({ headers: headersForToken(revocationCandidate.sessionToken) });
+    if (!signOutResult || signOutResult.success === false) {
+      const presentKeys = signOutResult && typeof signOutResult === 'object' ? Object.keys(signOutResult).join(', ') : String(signOutResult);
+      throw new Error(`signOut no confirmó éxito para la sesión revocada (claves presentes: ${presentKeys})`);
+    }
+    const revokedSessionResult = await realGetSession(revocationCandidate.sessionToken);
+    const revokedOutcome = deriveSessionVerificationOutcome(
+      revokedSessionResult as Parameters<typeof deriveSessionVerificationOutcome>[0],
+      'revoked',
+    );
+    expect(revokedOutcome.kind).not.toBe('valid');
+
     const client = await runtimePool.connect();
     const querySpy = vi.spyOn(client, 'query');
     try {
       // Ninguno de los tres resultados no-válidos llega a consultar membresías ni a fijar
       // contexto de tenant: cero llamadas a esta conexión antes de retornar.
-      for (const outcome of [invalidOutcome, expiredOutcome]) {
+      for (const outcome of [invalidOutcome, expiredOutcome, revokedOutcome]) {
         querySpy.mockClear();
         const authResult = await authorizeTenantSelection(client, outcome, TENANT_A.tenantId);
         expect(authResult.authorized).toBe(false);
@@ -342,37 +388,86 @@ describe('LF-002a Better Auth boundary (P10-P14; P01 es precondición obligatori
 
     const beginTrace = instrumentation.traces.find((t) => t.marker === 'begin');
     expect(beginTrace).toBeDefined();
-    const sharedTransactionId = beginTrace!.transactionId;
+    // Evidencia VERIFICABLE, no el agrupador local: `realTransactionId` viene de
+    // `pg_current_xact_id()` real, consultado contra el propio servidor justo tras el
+    // BEGIN — se exige que de verdad se haya capturado (no null) antes de apoyarse en él,
+    // para no caer de vuelta en una heurística local si esa consulta hubiera fallado.
+    expect(beginTrace!.realTransactionId).not.toBeNull();
+    const sharedRealTransactionId = beginTrace!.realTransactionId;
     const identityTracesInSameTransaction = instrumentation.traces.filter(
-      (t) => t.transactionId === sharedTransactionId && t.classification === 'identity',
+      (t) => t.realTransactionId === sharedRealTransactionId && t.classification === 'identity',
     );
     // Demostrado empíricamente, no supuesto: cuando el código de la aplicación comparte
     // deliberadamente su propia conexión/transacción con el adaptador (p. ej. pasando el
     // mismo `tx`/cliente a ambos), las consultas de identidad del adaptador SÍ quedan
-    // dentro de esa misma transacción — exactamente la pregunta original de
-    // docs/specs/LF-002a.md, respondida con el transactionId real, no con una heurística
-    // de texto.
+    // dentro de esa misma transacción real — exactamente la pregunta original de
+    // docs/specs/LF-002a.md, respondida con el xid real de Postgres, no con una heurística
+    // local ni de texto. El cierre también queda registrado: la transacción completa debió
+    // terminar en 'committed', nunca abierta ni abortada, para que esta prueba sea válida.
     expect(identityTracesInSameTransaction.length).toBeGreaterThan(0);
+    const commitTrace = instrumentation.traces.find((t) => t.marker === 'commit');
+    expect(commitTrace?.outcome).toBe('committed');
+    expect(beginTrace!.outcome).toBe('committed');
   });
 
   // --- P14: ruta de membresía autorizada --------------------------------------
   test('P14: la ruta de membresía elegida (databaseHooks.user.create.after) pasa por el wrapper autorizado y crea la fila esperada', async () => {
-    const { userId } = await realSignUp(uniqueEmail('p14'), syntheticPassword());
-
-    // Confirmación POSITIVA (no solo "ninguna consulta tocó probe_memberships", que por sí
-    // sola no demuestra cobertura suficiente): el hook disparó una escritura autorizada vía
-    // withTenantContext (ver beforeAll/onUserCreated) y la fila quedó creada con el tenant
-    // correcto, consultada desde el provisionador (nunca sujeta a RLS, nunca a la duda de
-    // si el propio runtime podría estar ocultándola).
-    const client = await provisionerPool.connect();
+    // Instancia de Better Auth PROPIA de esta prueba, con su PROPIO pool — hallazgo 3,
+    // segunda ronda: aislada deliberadamente de la instancia compartida de P10-P13 (sin
+    // hook) para que el hook de esta prueba nunca afecte a ninguna otra, y para evitar
+    // adjuntar un segundo listener 'connect' sobre el mismo pool (que envolvería
+    // `client.query` dos veces).
+    const p14Pool = createSpikePool({ connectionString: requireEnvUrl('LF002A_RUNTIME_URL'), maxConnections: 2 });
     try {
-      const result = await client.query<{ tenant_id: string; role: string }>(
-        'select tenant_id, role from probe_memberships where "userId" = $1',
-        [userId],
-      );
-      expect(result.rows).toEqual([{ tenant_id: TENANT_A.tenantId, role: 'owner' }]);
+      const { auth: p14Auth } = createInstrumentedAuth(p14Pool, {
+        secret: requireAuthSecret(),
+        baseURL: 'http://127.0.0.1:0',
+        onUserCreated: async (user) => {
+          // Ruta alternativa autorizada (ver auth.ts CreateAuthOptions — Better Auth no
+          // tiene un hook nativo para una tabla de membresías propia). Nunca una escritura
+          // directa sin wrapper: pasa por `withTenantContext`, igual que cualquier otra
+          // escritura de tenant_probe en el resto de la suite.
+          const client = await runtimePool.connect();
+          try {
+            await withTenantContext(client, TENANT_A.tenantId, async (c) => {
+              await c.query(
+                `insert into probe_memberships (id, "userId", tenant_id, role)
+                 values ($1, $2, $3, $4)
+                 on conflict ("userId", tenant_id) do nothing`,
+                [`probe-membership-hook-${user.id}`, user.id, TENANT_A.tenantId, 'owner'],
+              );
+            });
+          } finally {
+            client.release();
+          }
+        },
+      });
+
+      const signUpResult = await p14Auth.api.signUpEmail({
+        body: { email: uniqueEmail('p14'), password: syntheticPassword(), name: 'LF-002a test user' },
+      });
+      const userId: string | undefined = signUpResult?.user?.id;
+      if (!userId) {
+        const presentKeys = signUpResult && typeof signUpResult === 'object' ? Object.keys(signUpResult).join(', ') : String(signUpResult);
+        throw new Error(`signUpEmail no devolvió user.id real en P14 (claves presentes: ${presentKeys})`);
+      }
+
+      // Confirmación POSITIVA (no solo "ninguna consulta tocó probe_memberships", que por
+      // sí sola no demuestra cobertura suficiente): el hook disparó una escritura
+      // autorizada vía withTenantContext y la fila quedó creada con el tenant correcto,
+      // consultada desde el provisionador (nunca sujeta a RLS).
+      const client = await provisionerPool.connect();
+      try {
+        const result = await client.query<{ tenant_id: string; role: string }>(
+          'select tenant_id, role from probe_memberships where "userId" = $1',
+          [userId],
+        );
+        expect(result.rows).toEqual([{ tenant_id: TENANT_A.tenantId, role: 'owner' }]);
+      } finally {
+        client.release();
+      }
     } finally {
-      client.release();
+      await p14Pool.end();
     }
   });
 });

@@ -14,19 +14,15 @@
 
 begin;
 
--- Marcador de procedencia (revisión independiente del PR #19, hallazgo 2): una fila que
--- solo esta misma aplicación de schema.sql escribe, para que cualquier operación
--- destructiva/DDL posterior (ver tests/integration/lf-002a/lab-target.ts) pueda confirmar,
--- contra el propio servidor, que esta base fue realmente creada para este laboratorio —
--- nunca basarse en que su nombre "coincide" con el esperado, que una base preexistente y
--- ajena podría cumplir por pura casualidad. El valor debe coincidir exactamente con
--- SPIKE_MARKER_VALUE en tests/integration/lf-002a/lab-target.ts; si uno cambia, el otro
--- debe actualizarse a mano (no hay forma de compartir una constante entre SQL y TS aquí).
-create table if not exists lf002a_lab_marker (
-  created_for text primary key
-);
-insert into lf002a_lab_marker (created_for) values ('lf002a-identity-spike-v1')
-  on conflict (created_for) do nothing;
+-- NOTA (revisión independiente del PR #19, hallazgo 1 de la segunda ronda): la fila
+-- marcadora de procedencia (`lf002a_lab_marker`) ya NO se crea aquí. Hacerlo en este
+-- archivo, aplicable en teoría a cualquier base cuyo nombre coincidiera, era precisamente
+-- la "excepción general por nombre" que permitía que una base preexistente ajena
+-- adquiriera la marca. Ahora la escribe exclusivamente
+-- `tests/integration/lf-002a/database.ts#createSpikeDatabaseIfMatching`, inmediatamente
+-- después de un `CREATE DATABASE` real y exitoso — nunca por aplicar este archivo. Este
+-- archivo exige esa marca ya presente (vía `applySchemaSql`, que llama a
+-- `assertAuthorizedLabTarget` antes de ejecutar nada de lo que sigue) en vez de crearla.
 
 create table if not exists "user" (
   id text primary key,

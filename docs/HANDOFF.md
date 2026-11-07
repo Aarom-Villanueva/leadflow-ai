@@ -386,7 +386,10 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "tests/unit/lf-002a/lab-target.test.ts",
         "tests/unit/lf-002a/preflight-policy.test.ts",
         "tests/unit/lf-002a/query-classifier.test.ts",
-        "vitest.lf-002a.lifecycle.config.ts"
+        "vitest.lf-002a.lifecycle.config.ts",
+        "tests/integration/lf-002a/suite-lock.ts",
+        "tests/unit/lf-002a/suite-lock.test.ts",
+        ".gitignore"
       ]
     }
   ]
@@ -626,3 +629,15 @@ Candidato revisado: `e373c89feced48009c4f87d6889bbe655753380c`. Corrección ínt
 6. **Aislamiento y orden de la suite** (hallazgo 6): `seedFixtures`/`assertSeedSanity` extraídos a `seed.ts` (ningún `.test.ts` importa a otro); `lifecycle.test.ts` tiene configuración propia (`vitest.lf-002a.lifecycle.config.ts`, `include` mutuamente excluyente) para que nunca corra junto a isolation/auth-boundary; `schema.sql` re-otorga GRANT/REVOKE del rol runtime (idempotente, necesario tras recrear la base) y crea la fila marcadora; P04/P05 exigen el mensaje exacto de violación de RLS; `assertSeedSanity` impide pases vacuos por tabla vacía.
 
 Validación real ejecutada en esta ronda: `npx vitest run` (config por defecto) → **54/54** pruebas puras en 6 archivos (45 nuevas de esta ronda + 9 previas). `node --test tests/coordination/*.test.mjs` → **217/217**, sin regresión. `npm run lint` → limpio. `npm run typecheck` → 36 errores, todos en cascada desde los tres paquetes no instalados (se encontraron y corrigieron además dos bugs reales de tipos ajenos a `pg`, detectados por este mismo typecheck: un array de solo lectura al que se le llamaba `.push()`, y una inferencia de tupla de `Map` que colapsaba a `{}`). Pendiente, como el resto de esta fase: las 16 pruebas P01-P16 contra PostgreSQL/Better Auth reales — las pruebas con dobles de esta ronda demuestran la lógica, nunca sustituyen esa ejecución. Revisión independiente del candidato corregido, pendiente.
+
+## LF-023 — corrección de los hallazgos pendientes de la segunda ronda de revisión (candidato `212e201`)
+
+Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto; Claude no puede autorrevisarse. Misma rama `impl/lf-023-lf-002a-identity-spike`. Autorización del propietario explícita para esta ronda: corregir código/pruebas/documentación dentro de la reserva vigente; sin instalar dependencias, iniciar PostgreSQL, crear bases/roles, generar secretos, conectar proveedores, desplegar ni generar gastos. `docs/autopilot/BACKLOG.json` intacto, `execution_enabled=false`, tareas bloqueadas sin cambios. Detalle completo en `docs/specs/LF-023.md` §8; resumen:
+
+1. **Protección del destino completo**: `lab-target.ts` añade `verifySameServer` (compara `system_identifier` real de `pg_control_system()` entre la conexión administrativa y la candidata antes de confiar en cualquier operación que combine ambas — compartir solo el nombre de la base nunca basta) y `markLabTargetAsCreated`, la única función que escribe la fila marcadora, invocada exclusivamente justo después de un `CREATE DATABASE` real y exitoso. Como Postgres no tiene `CREATE DATABASE IF NOT EXISTS`, una base preexistente ajena hace que esa llamada lance y el marcador nunca se escriba — ya no existe ninguna excepción "de solo nombre" (ni siquiera para `applySchemaSql`, que ahora exige siempre la verificación completa). `seedFixtures` verifica procedencia por sí misma antes de insertar.
+2. **Preflight RLS "OR true"**: la comprobación de política pasó de "contiene la subcadena correcta" a un patrón anclado de principio a fin que exige la expresión EXACTA (con paréntesis/`::text` opcionales) — una política con `tenant_id = current_setting(...) OR true` ya se rechaza.
+3. **P10-P14**: el hook de membresía automática de P14 se aisló a su propia instancia de Better Auth, ya no contamina las altas de P10-P13 (lo que invalidaba el "sin membresía" de P11 y causaba un conflicto de clave única en P12). Se añadió la revocación real de sesión (`signOut`, resultado comprobado) y se dejó de convertir cualquier excepción de `getSession` en "sesión inválida". Los mensajes de error ya nunca incluyen el objeto de resultado completo (riesgo de imprimir un token).
+4. **Instrumentación P13 y clasificación por tabla**: la etiqueta local `backendPid:secuencia` ya no se llama "transactionId" (se renombra a `observedTransactionSpanId`, documentada como agrupador local, no evidencia real); se añade `realTransactionId` vía `pg_current_xact_id()` real tras cada BEGIN, y `outcome` de cierre de transacción. La clasificación de tablas ahora reconoce referencias calificadas por esquema (`"public"."user"`, antes mal clasificada).
+5. **Exclusión real entre suites**: nuevo `suite-lock.ts`, candado de archivo atómico (`fs.open(..., 'wx')`, solo `node:fs`) adquirido en `beforeAll`/liberado en `afterAll` de los tres archivos de prueba — las configuraciones de Vitest separadas por sí solas no impedían dos procesos concurrentes.
+
+Validación real ejecutada en esta ronda: `npx vitest run` → **67/67** pruebas puras, 7 archivos. `node --test tests/coordination/*.test.mjs` → **217/217**, sin regresión. `npm run lint` → limpio. `npm run typecheck` → 36 errores, mismo patrón exacto de cascada que la ronda anterior, confirmado línea por línea. Pendiente: las 16 pruebas P01-P16 contra PostgreSQL/Better Auth reales. Revisión independiente del candidato corregido, pendiente, antes de solicitar autorización de fase 2.

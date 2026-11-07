@@ -19,6 +19,15 @@
  *   rechazos de P04/P05 ahora exigen el mensaje específico de violación de RLS de
  *   Postgres, no cualquier error (una falta de permiso ordinario, no relacionada con RLS,
  *   ya no haría pasar la prueba por error).
+ *
+ * Revisión independiente, SEGUNDA ronda (candidato `212e201`), hallazgo 5: tener
+ * `vitest.lf-002a.config.ts`/`vitest.lf-002a.lifecycle.config.ts` con `include` mutuamente
+ * excluyentes solo impide que UNA invocación de Vitest mezcle los archivos; no impide dos
+ * PROCESOS distintos corriendo a la vez. `acquireSuiteLock` (suite-lock.ts, probado de
+ * verdad en tests/unit/lf-002a/suite-lock.test.ts) añade exclusión real basada en
+ * `fs.open(..., 'wx')`, adquirida aquí como lo PRIMERO que hace `beforeAll` y liberada en
+ * `afterAll` — el mismo candado que lifecycle.test.ts, así que P16 nunca puede borrar la
+ * base mientras esta suite lo tiene tomado, y viceversa.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Pool } from 'pg';
@@ -26,6 +35,7 @@ import { createSpikePool, getBackendIdentity, requireEnvUrl, runPreflight } from
 import { withTenantContext, withoutTenantContext } from './tenant-context.js';
 import { assertSeedSanity, seedFixtures } from './seed.js';
 import { TENANT_A, TENANT_B } from './fixtures.js';
+import { DEFAULT_LOCK_FILE_PATH, acquireSuiteLock, type SuiteLockHandle } from './suite-lock.js';
 
 // Mensaje exacto y documentado del motor de Postgres para un rechazo de RLS (USING o
 // WITH CHECK) — nunca un `.rejects.toThrow()` genérico, que pasaría igual ante un error
@@ -36,8 +46,12 @@ describe('LF-002a isolation (P02-P09; P01 es precondición obligatoria de before
   let provisionerPool: Pool;
   let runtimePool: Pool; // max=1: fuerza la reutilización de un único backend físico (P07/P08)
   let runtimeConcurrentPool: Pool; // max>1: solo para P09
+  let lockHandle: SuiteLockHandle | undefined;
 
   beforeAll(async () => {
+    // Lo primero de todo: exclusión real con lifecycle.test.ts antes de abrir ningún pool.
+    lockHandle = await acquireSuiteLock({ lockFilePath: DEFAULT_LOCK_FILE_PATH });
+
     const provisionerUrl = requireEnvUrl('LF002A_PROVISIONER_URL');
     const runtimeUrl = requireEnvUrl('LF002A_RUNTIME_URL');
 
@@ -61,6 +75,7 @@ describe('LF-002a isolation (P02-P09; P01 es precondición obligatoria de before
     await provisionerPool?.end();
     await runtimePool?.end();
     await runtimeConcurrentPool?.end();
+    lockHandle?.release();
   });
 
   // --- P02: control positivo ----------------------------------------------
