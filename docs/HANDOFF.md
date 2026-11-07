@@ -364,10 +364,6 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "owner": "Claude",
       "branch": "impl/lf-023-lf-002a-identity-spike",
       "state": "completed",
-      "completion": {
-        "head_sha": "c4611773e08a8e733cb3f04911d27e0ae4489e80",
-        "merge_sha": "209b808e3053907fd431f4a17cbdccdbe97a02cb"
-      },
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -398,7 +394,28 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "tests/unit/lf-002a/transaction-instrumentation.test.ts",
         "package.json",
         "package-lock.json"
-      ]
+      ],
+      "completion": {
+        "head_sha": "c4611773e08a8e733cb3f04911d27e0ae4489e80",
+        "merge_sha": "209b808e3053907fd431f4a17cbdccdbe97a02cb"
+      }
+    },
+    {
+      "id": "LF-024",
+      "owner": "ChatGPT",
+      "branch": "fix/lf-024-default-merge-release",
+      "state": "completed",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-024.md",
+        "scripts/check-coordination.mjs",
+        "tests/coordination/release.test.mjs"
+      ],
+      "completion": {
+        "head_sha": "0f0bb22870501722dae1795ffe2b8e3d536aa5a6",
+        "merge_sha": "46a9bb277ac63543982484e01e3515408d903b81"
+      }
     },
     {
       "id": "LF-003",
@@ -698,3 +715,20 @@ Responsable: Claude. Revisor: el propietario u otro agente; Claude no se autoapr
 Archivos reservados: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-003.md`, `src/app/design/**`, `src/components/ui/**`, `tests/e2e/design-preview.spec.ts`. Ningún archivo de `src/modules/**`, `tests/integration/lf-002a/**`, `tests/unit/lf-002a/**` ni ninguna otra reserva activa. Exclusiones: sin instalar dependencias nuevas, sin desplegar, sin proveedores externos, sin secretos, sin datos reales, sin recopilar credenciales en los formularios de la propuesta, sin tocar `docs/autopilot/BACKLOG.json` ni `execution_enabled`; AUTOPILOT y el ejecutor de agentes permanecen en pausa.
 
 **Riesgo de coordinación detectado (no de esta tarea, documentado en `docs/specs/LF-003.md` §10)**: al registrar esta reserva se verificó, ejecutando las funciones reales de `scripts/check-coordination.mjs` contra el historial real del repositorio, que `verifiedMergeReleases` no puede reconocer la liberación de LF-023 para este `main` base: exige que el *subject* del commit de fusión contenga literalmente `LF-023`, y el commit `209b808` usa el mensaje por defecto de GitHub ("Merge pull request #19 from ..."), que solo contiene `lf-023` en minúscula como parte del nombre de rama. Todas las demás comprobaciones (ancestría de `merge_sha`, `head_sha` entre los padres, `--is-ancestor`) pasan; solo falla esa coincidencia literal de texto. Consecuencia: aunque LF-023 se marca `completed` arriba (con evidencia real), el "Coordination gate" de este PR —y de cualquier PR futuro que toque `docs/HANDOFF.md`/`docs/ROADMAP.md`, es decir toda tarea futura— probablemente seguirá en rojo por este motivo, ajeno al contenido de cada PR, hasta que el propietario autorice una corrección a `verifiedMergeReleases`. Se registró como sugerencia de tarea independiente; no se modifica el script desde este PR.
+
+## LF-024 — liberación verificable con el mensaje predeterminado de GitHub
+
+- Responsable: ChatGPT. Revisor independiente: Claude/propietario, pendiente. Rama `fix/lf-024-default-merge-release`, base `209b808e3053907fd431f4a17cbdccdbe97a02cb`.
+- Reserva registrada antes de editar código: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-024.md`, `scripts/check-coordination.mjs`, `tests/coordination/release.test.mjs`.
+- LF-023 se cierra con head `c4611773e08a8e733cb3f04911d27e0ae4489e80` y merge `209b808e3053907fd431f4a17cbdccdbe97a02cb`, padres y ancestría comprobados. El identificador está en el título del PR incluido en el cuerpo del merge; su subject predeterminado solo contiene la rama en minúsculas.
+- Objetivo: reconocer de forma acotada ese formato sin suprimir la prueba Git ni aceptar menciones arbitrarias del identificador en el cuerpo. No se reescribe el historial ni se modifica el PR #20 de Claude.
+- Alcance interno de corrección del gate que bloquea el trabajo de producto; no reanuda AUTOPILOT. BACKLOG, workflows, dependencias y src intactos.
+- Validación y manifiesto SHA-256: se registran en el commit y el PR tras ejecutarlos. Sin autoaprobación ni autorización de merge.
+
+### Validación local LF-024
+
+- Node 24.22.1 ya disponible, sin instalar dependencias. Suite de coordinación: 227/227. Regresión ejecutada con el verificador original: las dos afirmaciones positivas del formato predeterminado fallan; con la corrección pasan. Todos los controles negativos pasan con ambos verificadores.
+- Sobre base `209b808e3053907fd431f4a17cbdccdbe97a02cb` y candidato real de PR #20 `e20294b622e694ea4558d580ab9805eb814c9d85`, el CLI corregido produce `taskId: LF-003`, `count: 46`, `foundation: true`, `verified_releases: [LF-023]`. Es una reproducción local, no un check remoto de PR #20.
+- Los resultados de los gates de LF-024 y CI se adjuntan al PR. No se ejecutó localmente la suite de aplicación (dependencias no instaladas en este checkout); se comprobará el job remoto completo.
+
+**Reconciliación real tras la fusión de PR #21**: el propietario fusionó PR #21 en `46a9bb277ac63543982484e01e3515408d903b81` (padres: `209b808e3053907fd431f4a17cbdccdbe97a02cb` y `0f0bb22870501722dae1795ffe2b8e3d536aa5a6`, el candidato auditado de forma independiente por Claude antes de la fusión). El registro de LF-024 arriba se actualiza a `completed` con esa evidencia real. Claude sincronizó esta rama (`design/lf-003-ui-ux-proposal`, PR #20) con `main` mediante un merge real (nunca rebase/squash), conservando su propia reserva LF-003 intacta. Nótese que el commit de fusión de PR #21 usa un *subject* personalizado ("Merge PR #21: LF-024 default GitHub merge release verification") que ya contiene `LF-024` literalmente — la ruta nueva de reconocimiento de mensaje predeterminado de LF-024 no fue necesaria para liberar la propia reserva de LF-024, solo para la de LF-023.

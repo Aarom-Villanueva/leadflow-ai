@@ -56,7 +56,18 @@ export function verifiedMergeReleases({ previous, current, base, git }) {
       if (parents[0] !== merge_sha || parents.length < 3 || !parents.slice(2).includes(head_sha)) continue;
       // execFileSync throws on nonzero exit; this check fails closed when merge_sha is not an ancestor.
       git('merge-base', '--is-ancestor', merge_sha, base);
-      if (!git('show', '-s', '--format=%s', merge_sha).includes(old.id)) continue;
+      const subject = git('show', '-s', '--format=%s', merge_sha).trim();
+      if (!subject.includes(old.id)) {
+        // GitHub puts the PR title in the body of its default merge message.
+        // Only accept that exact format, bound to the reserved branch and task title;
+        // a task ID mentioned elsewhere in an arbitrary message is not evidence.
+        const defaultMerge = subject.match(/^Merge pull request #[1-9]\d* from [A-Za-z0-9-]+\/(.+)$/);
+        if (!defaultMerge || defaultMerge[1] !== old.branch) continue;
+        const message = git('show', '-s', '--format=%B', merge_sha).trim();
+        const [messageSubject, ...body] = message.split(/\r?\n/);
+        const title = body.find(line => line.trim().length > 0);
+        if (messageSubject !== subject || !title?.startsWith(`${old.id}: `)) continue;
+      }
       result.push(old.id);
     } catch { /* Missing proof fails closed. */ }
   }
