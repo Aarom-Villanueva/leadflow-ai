@@ -14,6 +14,20 @@
 
 begin;
 
+-- Marcador de procedencia (revisión independiente del PR #19, hallazgo 2): una fila que
+-- solo esta misma aplicación de schema.sql escribe, para que cualquier operación
+-- destructiva/DDL posterior (ver tests/integration/lf-002a/lab-target.ts) pueda confirmar,
+-- contra el propio servidor, que esta base fue realmente creada para este laboratorio —
+-- nunca basarse en que su nombre "coincide" con el esperado, que una base preexistente y
+-- ajena podría cumplir por pura casualidad. El valor debe coincidir exactamente con
+-- SPIKE_MARKER_VALUE en tests/integration/lf-002a/lab-target.ts; si uno cambia, el otro
+-- debe actualizarse a mano (no hay forma de compartir una constante entre SQL y TS aquí).
+create table if not exists lf002a_lab_marker (
+  created_for text primary key
+);
+insert into lf002a_lab_marker (created_for) values ('lf002a-identity-spike-v1')
+  on conflict (created_for) do nothing;
+
 create table if not exists "user" (
   id text primary key,
   name text not null,
@@ -100,5 +114,23 @@ alter table tenant_probe force row level security;
 create policy tenant_probe_isolation on tenant_probe
   using (tenant_id = current_setting('app.tenant_id', true))
   with check (tenant_id = current_setting('app.tenant_id', true));
+
+-- Re-otorgar privilegios ordinarios del rol runtime (revisión independiente del PR #19,
+-- hallazgo 6): un `CREATE DATABASE` nuevo (P16, ciclo de borrado/recreación) NO hereda los
+-- GRANT por objeto de la base anterior, aunque el propio rol persista a nivel de clúster.
+-- Sin estas líneas, tras recrear la base el rol runtime no podría ni siquiera SELECT sus
+-- propias filas — el preflight/los casos positivos fallarían por falta de permisos
+-- ordinarios, no por RLS. Idempotente: segura de re-ejecutar en cada aplicación, no solo
+-- tras una recreación. El runtime nunca recibe TRUNCATE/DDL/REFERENCES/TRIGGER (plan
+-- §3: "El runtime no recibe TRUNCATE, DDL ni elevación a roles privilegiados"); el nombre
+-- del rol debe coincidir exactamente con SPIKE_RUNTIME_ROLE en
+-- tests/integration/lf-002a/lab-target.ts.
+grant usage on schema public to lf002a_runtime;
+grant select, insert, update, delete on
+  "user", "session", "account", "verification", probe_memberships, tenant_probe
+  to lf002a_runtime;
+revoke truncate, trigger, references on
+  "user", "session", "account", "verification", probe_memberships, tenant_probe
+  from lf002a_runtime;
 
 commit;

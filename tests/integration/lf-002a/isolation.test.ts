@@ -1,69 +1,38 @@
 /**
- * Casos P01–P09 del plan (docs/LF-002a-IMPLEMENTATION-PLAN.md §5): preflight, control
- * positivo, lectura/escritura cruzada entre tenants, contexto ausente/vacío/malformado,
- * reutilización real de conexión bajo un pool de una sola conexión, y concurrencia.
+ * Casos P02–P09 del plan (docs/LF-002a-IMPLEMENTATION-PLAN.md §5): control positivo,
+ * lectura/escritura cruzada entre tenants, contexto ausente/vacío/malformado, reutilización
+ * real de conexión bajo un pool de una sola conexión, y concurrencia. P01 (preflight) ya no
+ * es un caso de prueba independiente aquí — ver más abajo.
  *
  * Fase 1 (actual): escrito y revisado, NO ejecutado — exige `LF002A_PROVISIONER_URL` y
  * `LF002A_RUNTIME_URL` apuntando a PostgreSQL real (docs/specs/LF-023.md §4), que la
  * fase 2 todavía no autoriza. Sin esas variables, `beforeAll` falla de inmediato: esta
  * suite nunca se presenta como omitida ni como verde sin haber corrido de verdad.
+ *
+ * Revisión independiente del PR #19:
+ * - Hallazgo 3: el preflight (P01) ya no es un `test()` cuyo fallo permite que los demás
+ *   sigan — es una precondición obligatoria en `beforeAll` que LANZA si no pasa, lo que
+ *   hace que vitest marque fallidas TODAS las pruebas de este archivo, nunca solo una.
+ * - Hallazgo 6: `seedFixtures` se extrajo a seed.ts (ya no se importa un `.test.ts` desde
+ *   otro); se añade `assertSeedSanity` también como precondición obligatoria, para que
+ *   ningún caso "cero filas ajenas" pueda pasar vacuamente por una tabla vacía; los
+ *   rechazos de P04/P05 ahora exigen el mensaje específico de violación de RLS de
+ *   Postgres, no cualquier error (una falta de permiso ordinario, no relacionada con RLS,
+ *   ya no haría pasar la prueba por error).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Pool } from 'pg';
-import {
-  createSpikePool,
-  getBackendIdentity,
-  requireEnvUrl,
-  runPreflight,
-} from './database.js';
+import { createSpikePool, getBackendIdentity, requireEnvUrl, runPreflight } from './database.js';
 import { withTenantContext, withoutTenantContext } from './tenant-context.js';
-import {
-  ALL_SYNTHETIC_USERS,
-  SYNTHETIC_MEMBERSHIPS,
-  TENANT_A,
-  TENANT_B,
-  TENANT_PROBE_ROWS,
-} from './fixtures.js';
+import { assertSeedSanity, seedFixtures } from './seed.js';
+import { TENANT_A, TENANT_B } from './fixtures.js';
 
-const EXPECTED_DATABASE_NAME = 'lf002a_spike';
-const RUNTIME_ROLE = 'lf002a_runtime';
+// Mensaje exacto y documentado del motor de Postgres para un rechazo de RLS (USING o
+// WITH CHECK) — nunca un `.rejects.toThrow()` genérico, que pasaría igual ante un error
+// de permiso ordinario (p. ej. una concesión GRANT faltante) no relacionado con RLS.
+const RLS_REJECTION_PATTERN = /row-level security policy/i;
 
-/** Inserción idempotente de los fixtures: segura de llamar desde más de un archivo de prueba. */
-export async function seedFixtures(provisionerPool: Pool): Promise<void> {
-  const client = await provisionerPool.connect();
-  try {
-    for (const user of ALL_SYNTHETIC_USERS) {
-      await client.query(
-        'insert into "user" (id, name, email) values ($1, $2, $3) on conflict (id) do nothing',
-        [user.id, user.name, user.email],
-      );
-    }
-    for (const membership of SYNTHETIC_MEMBERSHIPS) {
-      await client.query(
-        `insert into probe_memberships (id, "userId", tenant_id, role, revoked_at)
-         values ($1, $2, $3, $4, $5)
-         on conflict ("userId", tenant_id) do nothing`,
-        [
-          `probe-membership-${membership.userId}-${membership.tenantId}`,
-          membership.userId,
-          membership.tenantId,
-          membership.role,
-          membership.revoked ? new Date() : null,
-        ],
-      );
-    }
-    for (const row of TENANT_PROBE_ROWS) {
-      await client.query(
-        'insert into tenant_probe (id, tenant_id, label) values ($1, $2, $3) on conflict (id) do nothing',
-        [row.id, row.tenantId, row.label],
-      );
-    }
-  } finally {
-    client.release();
-  }
-}
-
-describe('LF-002a isolation (P01-P09)', () => {
+describe('LF-002a isolation (P02-P09; P01 es precondición obligatoria de beforeAll)', () => {
   let provisionerPool: Pool;
   let runtimePool: Pool; // max=1: fuerza la reutilización de un único backend físico (P07/P08)
   let runtimeConcurrentPool: Pool; // max>1: solo para P09
@@ -72,41 +41,26 @@ describe('LF-002a isolation (P01-P09)', () => {
     const provisionerUrl = requireEnvUrl('LF002A_PROVISIONER_URL');
     const runtimeUrl = requireEnvUrl('LF002A_RUNTIME_URL');
 
-    provisionerPool = createSpikePool({
-      connectionString: provisionerUrl,
-      expectedDatabaseName: EXPECTED_DATABASE_NAME,
-      runtimeRole: RUNTIME_ROLE,
-      maxConnections: 2,
-    });
-    runtimePool = createSpikePool({
-      connectionString: runtimeUrl,
-      expectedDatabaseName: EXPECTED_DATABASE_NAME,
-      runtimeRole: RUNTIME_ROLE,
-      maxConnections: 1,
-    });
-    runtimeConcurrentPool = createSpikePool({
-      connectionString: runtimeUrl,
-      expectedDatabaseName: EXPECTED_DATABASE_NAME,
-      runtimeRole: RUNTIME_ROLE,
-      maxConnections: 4,
-    });
+    provisionerPool = createSpikePool({ connectionString: provisionerUrl, maxConnections: 2 });
+    runtimePool = createSpikePool({ connectionString: runtimeUrl, maxConnections: 1 });
+    runtimeConcurrentPool = createSpikePool({ connectionString: runtimeUrl, maxConnections: 4 });
 
     await seedFixtures(provisionerPool);
+    await assertSeedSanity(provisionerPool);
+
+    // P01, como precondición obligatoria: si falla, lanza aquí y detiene TODA la suite —
+    // nunca un test() independiente cuyo fallo deja correr los casos negativos sobre un
+    // destino o un rol que no se confirmaron seguros primero.
+    const preflight = await runPreflight(runtimePool);
+    if (!preflight.ok) {
+      throw new Error(`P01 preflight failed, refusing to run any lab case: ${preflight.reasons.join(', ')}`);
+    }
   });
 
   afterAll(async () => {
     await provisionerPool?.end();
     await runtimePool?.end();
     await runtimeConcurrentPool?.end();
-  });
-
-  // --- P01: preflight ---------------------------------------------------
-  test('P01: el preflight del rol/esquema de runtime pasa antes de cualquier caso negativo', async () => {
-    const result = await runPreflight(runtimePool, {
-      expectedDatabaseName: EXPECTED_DATABASE_NAME,
-      runtimeRole: RUNTIME_ROLE,
-    });
-    expect(result).toEqual({ ok: true, reasons: [] });
   });
 
   // --- P02: control positivo ----------------------------------------------
@@ -156,7 +110,7 @@ describe('LF-002a isolation (P01-P09)', () => {
   });
 
   // --- P04: INSERT con tenant ajeno ----------------------------------------
-  test('P04: INSERT con tenant_id ajeno es rechazado por WITH CHECK y no persiste', async () => {
+  test('P04: INSERT con tenant_id ajeno es rechazado por WITH CHECK (mensaje de RLS exacto) y no persiste', async () => {
     const client = await runtimePool.connect();
     try {
       await expect(
@@ -167,7 +121,7 @@ describe('LF-002a isolation (P01-P09)', () => {
             'should never persist',
           ]),
         ),
-      ).rejects.toThrow();
+      ).rejects.toThrow(RLS_REJECTION_PATTERN);
     } finally {
       client.release();
     }
@@ -204,7 +158,7 @@ describe('LF-002a isolation (P01-P09)', () => {
         withTenantContext(client, TENANT_A.tenantId, (c) =>
           c.query('update tenant_probe set tenant_id = $1 where id = $2', [TENANT_B.tenantId, 'probe-a-1']),
         ),
-      ).rejects.toThrow();
+      ).rejects.toThrow(RLS_REJECTION_PATTERN);
     } finally {
       client.release();
     }
