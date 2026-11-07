@@ -346,13 +346,47 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-022",
       "owner": "ChatGPT",
       "branch": "planning/lf-022-lf-002a-scope",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-002a.md",
         "docs/specs/LF-022.md",
         "docs/LF-002a-IMPLEMENTATION-PLAN.md"
+      ],
+      "completion": {
+        "head_sha": "325ece94eec2493c7bb37ae3d6c484311265acf7",
+        "merge_sha": "68f77930a35846a39cdbb490354abe0d3c25e53d"
+      }
+    },
+    {
+      "id": "LF-023",
+      "owner": "Claude",
+      "branch": "impl/lf-023-lf-002a-identity-spike",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-023.md",
+        "tests/integration/lf-002a/schema.sql",
+        "tests/integration/lf-002a/fixtures.ts",
+        "tests/integration/lf-002a/database.ts",
+        "tests/integration/lf-002a/auth.ts",
+        "tests/integration/lf-002a/tenant-context.ts",
+        "tests/integration/lf-002a/isolation.test.ts",
+        "tests/integration/lf-002a/auth-boundary.test.ts",
+        "tests/integration/lf-002a/lifecycle.test.ts",
+        "vitest.lf-002a.config.ts",
+        "tests/integration/lf-002a/connection-guard.ts",
+        "tests/integration/lf-002a/lab-target.ts",
+        "tests/integration/lf-002a/preflight-policy.ts",
+        "tests/integration/lf-002a/query-classifier.ts",
+        "tests/integration/lf-002a/seed.ts",
+        "tests/unit/lf-002a/connection-guard.test.ts",
+        "tests/unit/lf-002a/lab-target.test.ts",
+        "tests/unit/lf-002a/preflight-policy.test.ts",
+        "tests/unit/lf-002a/query-classifier.test.ts",
+        "vitest.lf-002a.lifecycle.config.ts"
       ]
     }
   ]
@@ -561,3 +595,34 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Contrato: docs/specs/LF-022.md. Plan de implementación futura: docs/LF-002a-IMPLEMENTATION-PLAN.md. LF-002a/002/003 y execution_enabled=false permanecen intactos en BACKLOG; D-002/D-003 siguen pendientes.
 - Manifiesto SHA-256 de los cinco documentos en el mensaje del commit. Resultados locales, SHA y CI se registran en el PR al observarlos; revisión independiente y autorización de merge pendientes.
 - Riesgo principal: aprobar RLS con mocks o con un rol que la omite; el spike futuro exige PostgreSQL real y evidencia de rol/transacción/conexión. Ninguna de esas pruebas se ejecuta en LF-022.
+
+## LF-022 — cierre verificable
+
+- PR #18 fusionado mediante `merge`: head `325ece94eec2493c7bb37ae3d6c484311265acf7`, merge `68f77930a35846a39cdbb490354abe0d3c25e53d`; padres, ancestría y subject verificados por quien ejecutó el merge antes de fusionar. Se cierra la reserva documental.
+
+## LF-023 — implementación del spike de identidad LF-002a (fase 1: código y pruebas, sin instalar/conectar)
+
+- Responsable: Claude (Claude Code). Revisor: el propietario o un agente distinto de Claude; esta entrega no puede autorrevisarse.
+- Rama: `impl/lf-023-lf-002a-identity-spike`. Base: `68f77930a35846a39cdbb490354abe0d3c25e53d` (merge PR #18).
+- Autorización expresa del propietario: implementar el spike LF-002a conforme al plan integrado por PR #18 (`docs/LF-002a-IMPLEMENTATION-PLAN.md`), en rama independiente y PR DRAFT. Explícitamente autoriza escribir código y pruebas ahora; explícitamente exige presentar la lista concreta de cambios para aprobación **antes** de instalar herramientas/paquetes, descargar imágenes, crear una base local o generar material de autenticación sintético. Sin bases remotas, credenciales productivas, correo real, proveedores IA ni servicios pagados; sin desplegar, ejecutar otros agentes, modificar workflows ni fusionar.
+- Alcance de esta fase: `tests/integration/lf-002a/schema.sql` (DDL de identidad + `tenant_probe`/`probe_memberships`, revisado contra el esquema real de `@better-auth/core@1.7.18` obtenido del propio paquete publicado — ver evidencia abajo), `fixtures.ts` (tenants/usuarios sintéticos, sin secretos), `database.ts` (pool, preflight, instrumentación), `auth.ts` (configuración e instrumentación de Better Auth), `tenant-context.ts` (wrapper de sesión/membresía/transacción), `isolation.test.ts`/`auth-boundary.test.ts`/`lifecycle.test.ts` (la matriz P01–P16 del plan, escritos como pruebas reales que **no pueden ejecutarse todavía** — dependen de paquetes y de una base no instalados/creados en esta fase), `vitest.lf-002a.config.ts` (configuración separada, nunca recogida por `npm test`). Contrato de esta tarea en `docs/specs/LF-023.md`.
+- **No se tocó `package.json`/`package-lock.json` en esta fase**: las versiones exactas investigadas (ver `docs/specs/LF-023.md` §4) se presentan como propuesta para aprobación del propietario, no como edición ya aplicada. No se ejecutó `npm install`, no se creó ni inició ninguna base de datos, no se descargó ninguna imagen de contenedor, no se generó ningún material de autenticación sintético (ni siquiera efímero).
+- Entorno inspeccionado (esta sesión de Claude Code Cloud, Linux, distinta de la sesión Windows que usó ChatGPT en LF-022): PostgreSQL 16 completo ya instalado (`postgresql-16`, `postgresql-client-16`), con un clúster `main` ya inicializado en el puerto 5432 pero **detenido** (`pg_lsclusters`: `Status down`); ningún otro proceso escucha ese puerto. Docker CLI presente, daemon no alcanzable (mismo patrón que LF-021). Node v22.23.4 activo en esta sesión junto al v24 ya usado en rondas anteriores; `.nvmrc` sigue fijando 24.19.0 para CI.
+- `docs/autopilot/BACKLOG.json` intacto: `execution_enabled=false`; `LF-002a`/`LF-002`/`LF-003` siguen `blocked`; D-002/D-003 sin aprobar. Sin workflows modificados.
+- Dado que el diff de esta fase incluye código fuera de `docs/` (los archivos de prueba/esquema/TS), `foundation=true`: `Foundation verification` se ejecutará en CI y **se espera que falle** en `lint`/`typecheck` por imports no resolubles (`better-auth`, `drizzle-orm`, `pg`) mientras esas dependencias no estén aprobadas e instaladas — esto es un estado intermedio esperado de esta fase, no un defecto oculto; se documenta explícitamente, nunca se declara un resultado distinto del observado.
+- Validación local real, ejecutada antes de este commit (no afirmada sin haberla corrido): `node --test tests/coordination/*.test.mjs` → **217/217 aprobadas**, sin regresión. `npm run lint` → **limpio** (0 problemas; se corrigió un import `PoolClient` sin usar detectado en ese mismo paso). `npm run typecheck` → **36 errores**, los 36 son consecuencia directa o en cascada de los tres paquetes no instalados: `TS2307 Cannot find module` para `pg`/`better-auth`/`drizzle-orm`/`drizzle-orm/node-postgres`/`drizzle-orm/pg-core`/`better-auth/adapters/drizzle` (7 ocurrencias), y el resto (`TS7006`/`TS18046`, parámetros/retornos inferidos como `any`/`unknown`) son el mismo efecto propagándose por `isolation.test.ts` porque los tipos de `pg` (`QueryResult`, etc.) tampoco resuelven — ninguno es un error de lógica independiente. No se ejecutaron (no pueden ejecutarse) `isolation.test.ts`/`auth-boundary.test.ts`/`lifecycle.test.ts` mismos: exigen `pg`/`better-auth`/`drizzle-orm` instalados y PostgreSQL real, ninguno disponible en esta fase.
+- Corrección tras un primer intento de `node scripts/check-coordination.mjs`: faltaba la fila de `docs/ROADMAP.md` para `LF-023` (exigida por `readPlannedFiles`, igual que para toda tarea anterior). Se añadió esa fila y se agregó `docs/ROADMAP.md` a la lista de archivos reservados de esta misma tarea (arriba) — ambos archivos documentales de coordinación, dentro del alcance ya autorizado (código/pruebas/documentación de esta fase 1), sin tocar `BACKLOG.json` ni workflows.
+- Siguiente paso: el propietario revisa la lista concreta de cambios (versiones exactas, elección de base de datos local ya instalada frente a contenedor, y el material de autenticación sintético propuesto) en `docs/specs/LF-023.md` §4 y autoriza expresamente la fase 2 (editar `package.json`, instalar, iniciar el clúster PostgreSQL ya presente, crear el rol/base descartables, generar el secreto sintético) antes de que algo de eso se ejecute. Revisión independiente del candidato de esta fase 1, pendiente.
+
+## LF-023 — corrección de los 6 hallazgos de la revisión independiente del PR #19
+
+Candidato revisado: `e373c89feced48009c4f87d6889bbe655753380c`. Corrección íntegramente en la misma rama `impl/lf-023-lf-002a-identity-spike`, sin instalar paquetes, iniciar PostgreSQL, crear/conectar bases ni generar secretos — fase 2 sigue sin autorizar. Detalle completo hallazgo por hallazgo en `docs/specs/LF-023.md` §7; resumen:
+
+1. **Validación efectiva de conexión** (hallazgo 1): `assertLocalOnly` extraído a `connection-guard.ts` (puro); rechaza cualquier parámetro de consulta (incluido el `?host=` que sustituía el destino real), listas de hosts múltiples y esquemas no-postgres; trata IPv4/IPv6/`localhost` explícitamente, sockets Unix explícitamente no soportados. 11 pruebas puras ejecutadas y aprobadas.
+2. **Protección del destino/operaciones destructivas** (hallazgo 2): se eliminó el parámetro "nombre esperado" de `dropSpikeDatabaseIfMatching`/`createSpikeDatabaseIfMatching` (el bypass exacto reportado por un doble local: dos cadenas iguales a `"postgres"` se aceptaban). `lab-target.ts` (puro) exige nombre único más una fila marcadora de procedencia (`lf002a_lab_marker`) antes de cualquier operación destructiva; bases de sistema rechazadas siempre. 8 pruebas puras con dobles, incluida la reproducción exacta del bypass, ejecutadas y aprobadas.
+3. **Preflight del rol conectado y políticas** (hallazgo 3): `runPreflight` consulta `current_user`/`session_user` reales, identifica el objeto por esquema+nombre exactos, inspecciona cada política (roles/comando/USING/WITH CHECK, detecta políticas permisivas vacías), grants en exceso y roles heredados privilegiados; decisión pura en `preflight-policy.ts`, 15 pruebas ejecutadas y aprobadas. El preflight es ahora precondición obligatoria en `beforeAll` (lanza y bloquea todo el archivo) en los tres archivos de prueba.
+4. **Sesiones reales P10-P12** (hallazgo 4): `tenant-context.ts` exige un `SessionVerificationOutcome` derivado de `auth.api.getSession` real, nunca un `status` declarado a mano; `auth-boundary.test.ts` reescrito con alta/login/expiración/revocación reales y verificación por `vi.spyOn` de que ninguna sesión no válida consulta la conexión del runtime.
+5. **Frontera transaccional P13/P14** (hallazgo 5): clasificación por tabla realmente referenciada (`query-classifier.ts`, 10 pruebas puras ejecutadas y aprobadas) más backend/transactionId reales de BEGIN/COMMIT/ROLLBACK; dos escenarios (pool compartido sin cliente común vs. cliente compartido deliberadamente vía `createClientScopedAuth`, sin riesgo de deadlock); P14 conecta `databaseHooks.user.create.after` a una escritura vía `withTenantContext`, confirmada positivamente, no solo por ausencia de consultas.
+6. **Aislamiento y orden de la suite** (hallazgo 6): `seedFixtures`/`assertSeedSanity` extraídos a `seed.ts` (ningún `.test.ts` importa a otro); `lifecycle.test.ts` tiene configuración propia (`vitest.lf-002a.lifecycle.config.ts`, `include` mutuamente excluyente) para que nunca corra junto a isolation/auth-boundary; `schema.sql` re-otorga GRANT/REVOKE del rol runtime (idempotente, necesario tras recrear la base) y crea la fila marcadora; P04/P05 exigen el mensaje exacto de violación de RLS; `assertSeedSanity` impide pases vacuos por tabla vacía.
+
+Validación real ejecutada en esta ronda: `npx vitest run` (config por defecto) → **54/54** pruebas puras en 6 archivos (45 nuevas de esta ronda + 9 previas). `node --test tests/coordination/*.test.mjs` → **217/217**, sin regresión. `npm run lint` → limpio. `npm run typecheck` → 36 errores, todos en cascada desde los tres paquetes no instalados (se encontraron y corrigieron además dos bugs reales de tipos ajenos a `pg`, detectados por este mismo typecheck: un array de solo lectura al que se le llamaba `.push()`, y una inferencia de tupla de `Map` que colapsaba a `{}`). Pendiente, como el resto de esta fase: las 16 pruebas P01-P16 contra PostgreSQL/Better Auth reales — las pruebas con dobles de esta ronda demuestran la lógica, nunca sustituyen esa ejecución. Revisión independiente del candidato corregido, pendiente.
