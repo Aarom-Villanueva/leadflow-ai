@@ -329,13 +329,30 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-021",
       "owner": "ChatGPT",
       "branch": "design/lf-021-executor-sandbox-proposal",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-001d.md",
         "docs/specs/LF-021.md",
         "docs/autopilot/LF-001d-EXECUTOR-SANDBOX-PROPOSAL.md"
+      ],
+      "completion": {
+        "head_sha": "f20aec22377c74196e0fc12987c4be2d5e38ec64",
+        "merge_sha": "0b0110969493a9e74b618f20540d280fc21d7993"
+      }
+    },
+    {
+      "id": "LF-022",
+      "owner": "ChatGPT",
+      "branch": "planning/lf-022-lf-002a-scope",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-002a.md",
+        "docs/specs/LF-022.md",
+        "docs/LF-002a-IMPLEMENTATION-PLAN.md"
       ]
     }
   ]
@@ -530,3 +547,17 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
 - Validación local, candidato y CI: se registrarán en el PR con comandos y resultados reales. No declarar CI ni revisión aprobadas antes de observarlas.
 - Siguiente paso: verificar gates sobre el diff, publicar PR en borrador, revisión independiente (no por Claude) del SHA exacto, y autorización nueva y separada del propietario antes de decidir el entorno de producción real, instalar/construir cualquier mecanismo de aislamiento, o proponer una implementación.
 - **Corrección post-revisión (misma rama, mismo PR en borrador):** una revisión independiente del candidato `b54ca52324147e3babc63a889c647e9917583019` señaló tres hallazgos, resueltos exclusivamente en `docs/autopilot/LF-001d-EXECUTOR-SANDBOX-PROPOSAL.md`: (1) **retirada de privilegios del ejecutor** — se añadió la sección 3.1 (UID/GID dedicado, vaciado de los cinco conjuntos de capacidades Linux citando el *runtime-spec* de OCI, `no_new_privs`, política seccomp propuesta, restricciones de `/proc`/dispositivos/descriptores heredados, orden de preparación en 9 pasos y fallo cerrado), dejando explícito que namespaces/`chroot` no retiran privilegio por sí solos; (2) **prueba de red sin falso positivo** — se retiró `curl http://example.invalid` (cae bajo el dominio reservado `.invalid`, que puede fallar con o sin red real) y se documentó, sin ejecutarlo, un plan de prueba controlada con destino IP numérico, controles positivo/negativo, observación externa y un resultado explícito "inconcluso"; (3) **semántica de PID namespaces y CPU** — se corrigió que los procesos internos son visibles desde cada namespace ancestro (no "invisibles"), y que exceder una cuota de CPU produce *throttling* (`cpu.stat`), nunca una terminación, distinguiéndolo de un presupuesto acumulado, del plazo de reloj y del OOM real de memoria. Referencias primarias: *runtime-spec* de OCI (obtenido directamente) y copias espejo verificadas de `pid_namespaces(7)`/documentación de ancho de banda CFS, servidas desde GitHub; los hosts canónicos `man7.org`, `docs.kernel.org`, `rfc-editor.org` y un espejo en `tex2e.github.io` resultaron bloqueados para esta sesión (`getaddrinfo ENOTFOUND`) — el contenido de RFC 6761 queda marcado explícitamente como conocimiento general no verificado contra su fuente primaria en esta ronda, documentado como comprobación bloqueada. Sin instalar herramientas, sin construir namespaces/cgroups/contenedores, sin ejecutar código no confiable ni probar escapes. Sin workflows ni dependencias modificados; `BACKLOG.json` intacto. El candidato corregido sigue siendo exclusivamente documental y requiere otra revisión independiente antes de cualquier autorización o fusión.
+
+
+## LF-021 — cierre verificable
+
+- PR #17 integrado mediante merge: head `f20aec22377c74196e0fc12987c4be2d5e38ec64`, merge `0b0110969493a9e74b618f20540d280fc21d7993`; evidencia de padres y ancestría verificable por el gate. Se cierra la reserva documental, sin autorizar construir aislamiento ni habilitar agentes.
+
+## LF-022 — alcance preparatorio de LF-002a
+
+- Responsable: ChatGPT en Codex. Revisor propuesto: Claude, no iniciado por esta tarea. Rama `planning/lf-022-lf-002a-scope`, base `0b0110969493a9e74b618f20540d280fc21d7993`.
+- Autorización del propietario: preparar el alcance concreto de LF-002a en documentación; no ejecutar el spike, instalar herramientas, conectar servicios, introducir secretos ni desbloquear tareas.
+- Reserva registrada antes de editar el alcance: las cinco rutas exactas del registro LF-022. Entregables: contrato LF-022, actualización de estado contextual de LF-002a, plan técnico de pruebas y roadmap.
+- Contrato: docs/specs/LF-022.md. Plan de implementación futura: docs/LF-002a-IMPLEMENTATION-PLAN.md. LF-002a/002/003 y execution_enabled=false permanecen intactos en BACKLOG; D-002/D-003 siguen pendientes.
+- Manifiesto SHA-256 de los cinco documentos en el mensaje del commit. Resultados locales, SHA y CI se registran en el PR al observarlos; revisión independiente y autorización de merge pendientes.
+- Riesgo principal: aprobar RLS con mocks o con un rol que la omite; el spike futuro exige PostgreSQL real y evidencia de rol/transacción/conexión. Ninguna de esas pruebas se ejecuta en LF-022.
