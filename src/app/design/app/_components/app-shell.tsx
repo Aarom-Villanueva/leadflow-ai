@@ -8,6 +8,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { RoleBadge } from "@/components/ui/role-badge";
 import {
   AdminIcon,
+  ChevronDownIcon,
   DashboardIcon,
   FollowupsIcon,
   LeadsIcon,
@@ -85,9 +86,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             <MenuIcon />
           </IconButton>
 
-          <div className="hidden min-w-0 items-center gap-2 text-[0.8125rem] text-[var(--text-secondary)] sm:flex">
-            <span className="truncate font-medium text-[var(--text-primary)]">{SYNTHETIC_ORG.name}</span>
-          </div>
+          <Link
+            href="/design/org/seleccionar"
+            className="hidden min-w-0 items-center gap-1.5 truncate rounded text-[0.8125rem] font-medium text-[var(--text-primary)] hover:text-[var(--accent)] sm:flex focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          >
+            {SYNTHETIC_ORG.name}
+            <ChevronDownIcon className="size-3.5 shrink-0 text-[var(--text-tertiary)]" />
+          </Link>
 
           <div className="relative ml-auto hidden max-w-xs flex-1 sm:block">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--text-tertiary)]" />

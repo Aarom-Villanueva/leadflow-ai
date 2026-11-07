@@ -13,6 +13,21 @@ export const SYNTHETIC_ORG = {
   timezone: "America/Bogota",
 };
 
+export interface SyntheticOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  timezone: string;
+  currentMemberRole: OrgRole;
+}
+
+/** Organizaciones sintéticas a las que pertenece la persona de prueba — etapa 2, pantalla de selección. */
+export const SYNTHETIC_ORGANIZATIONS: SyntheticOrganization[] = [
+  { id: "org-1", name: "Studio Verde (sintético)", slug: "studio-verde", timezone: "America/Bogota", currentMemberRole: "owner" },
+  { id: "org-2", name: "Andina Soluciones (sintético)", slug: "andina-soluciones", timezone: "America/Lima", currentMemberRole: "admin" },
+  { id: "org-3", name: "Taller Nómade (sintético)", slug: "taller-nomade", timezone: "America/Mexico_City", currentMemberRole: "sales" },
+];
+
 export interface SyntheticMember {
   id: string;
   name: string;
@@ -80,7 +95,9 @@ function syntheticLead(index: number): SyntheticLead {
     source: sources[index % sources.length]!,
     stageId: stage.id,
     assignedMemberId: member.id,
-    createdAt: daysAgo(30 - (index % 28)),
+    // Repartido en ~5 meses (10 a 148 días atrás) para que el dashboard tenga
+    // más de una cohorte real que comparar, no solo un mes.
+    createdAt: daysAgo(10 + index * 6),
     lastInteractionAt: index % 7 === 0 ? undefined : daysAgo(index % 10),
     nextFollowupAt: isOpen ? (index % 4 === 0 ? daysAgo(2) : daysAhead((index % 9) + 1)) : undefined,
     archived: false,
@@ -98,11 +115,37 @@ export interface SyntheticInteraction {
   occurredAt: string;
 }
 
-export const SYNTHETIC_INTERACTIONS: SyntheticInteraction[] = [
-  { id: "int-1", leadId: "lead-1", authorMemberId: "member-3", kind: "llamada", body: "Primer contacto; interesados en una demostración la próxima semana.", occurredAt: new Date(Date.now() - 3 * 86_400_000).toISOString() },
-  { id: "int-2", leadId: "lead-1", authorMemberId: "member-3", kind: "nota", body: "Prefieren comunicación por correo; evitar llamadas en la mañana.", occurredAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
-  { id: "int-3", leadId: "lead-2", authorMemberId: "member-4", kind: "reunión", body: "Reunión de descubrimiento con el equipo de compras.", occurredAt: new Date(Date.now() - 5 * 86_400_000).toISOString() },
+const interactionBodies: { kind: SyntheticInteraction["kind"]; body: string }[] = [
+  { kind: "llamada", body: "Primer contacto; interesados en una demostración la próxima semana." },
+  { kind: "nota", body: "Prefieren comunicación por correo; evitar llamadas en la mañana." },
+  { kind: "reunión", body: "Reunión de descubrimiento con el equipo de compras." },
+  { kind: "conversación", body: "Conversación aportada por la persona de ventas sobre presupuesto disponible." },
+  { kind: "llamada", body: "Seguimiento telefónico; piden una propuesta por escrito." },
+  { kind: "nota", body: "Referido por un cliente actual; mencionar el descuento de referidos." },
 ];
+
+const manualInteractions: SyntheticInteraction[] = [
+  { id: "int-1", leadId: "lead-1", authorMemberId: "member-3", kind: "llamada", body: interactionBodies[0]!.body, occurredAt: new Date(Date.now() - 3 * 86_400_000).toISOString() },
+  { id: "int-2", leadId: "lead-1", authorMemberId: "member-3", kind: "nota", body: interactionBodies[1]!.body, occurredAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
+  { id: "int-3", leadId: "lead-2", authorMemberId: "member-4", kind: "reunión", body: interactionBodies[2]!.body, occurredAt: new Date(Date.now() - 5 * 86_400_000).toISOString() },
+];
+
+/** Interacciones generadas para el resto de prospectos — alimentan el feed agregado de la etapa 2. */
+const generatedInteractions: SyntheticInteraction[] = Array.from({ length: 16 }, (_, index) => {
+  const leadIndex = index % 12; // primeras 12 leads, varias interacciones cada una
+  const entry = interactionBodies[index % interactionBodies.length]!;
+  const member = SYNTHETIC_MEMBERS[index % SYNTHETIC_MEMBERS.length]!;
+  return {
+    id: `int-gen-${index + 1}`,
+    leadId: `lead-${leadIndex + 1}`,
+    authorMemberId: member.id,
+    kind: entry.kind,
+    body: entry.body,
+    occurredAt: new Date(Date.now() - (4 + index * 3) * 86_400_000).toISOString(),
+  };
+});
+
+export const SYNTHETIC_INTERACTIONS: SyntheticInteraction[] = [...manualInteractions, ...generatedInteractions];
 
 export interface SyntheticFollowup {
   id: string;
@@ -113,11 +156,75 @@ export interface SyntheticFollowup {
   status: "pending" | "completed" | "canceled";
 }
 
-export const SYNTHETIC_FOLLOWUPS: SyntheticFollowup[] = [
+const manualFollowups: SyntheticFollowup[] = [
   { id: "fu-1", leadId: "lead-1", assignedMemberId: "member-3", title: "Enviar propuesta comercial", dueAt: new Date(Date.now() + 2 * 86_400_000).toISOString(), status: "pending" },
   { id: "fu-2", leadId: "lead-1", assignedMemberId: "member-3", title: "Confirmar asistencia a la demo", dueAt: new Date(Date.now() - 1 * 86_400_000).toISOString(), status: "pending" },
   { id: "fu-3", leadId: "lead-2", assignedMemberId: "member-4", title: "Llamada de seguimiento", dueAt: new Date(Date.now() + 5 * 86_400_000).toISOString(), status: "completed" },
 ];
+
+const followupTitles = [
+  "Enviar cotización actualizada",
+  "Confirmar datos de facturación",
+  "Agendar demostración del producto",
+  "Revisar objeciones de precio",
+  "Compartir caso de éxito similar",
+  "Validar fecha de cierre estimada",
+];
+
+/** Seguimientos generados para el resto de prospectos — alimentan el feed agregado y el dashboard de vencidos. */
+const generatedFollowups: SyntheticFollowup[] = Array.from({ length: 18 }, (_, index) => {
+  const leadIndex = index % 14;
+  const member = SYNTHETIC_MEMBERS[index % SYNTHETIC_MEMBERS.length]!;
+  const offsetDays = (index % 6) - 3; // -3..2: mezcla vencidos y próximos
+  const status: SyntheticFollowup["status"] = index % 5 === 0 ? "canceled" : index % 3 === 0 ? "completed" : "pending";
+  return {
+    id: `fu-gen-${index + 1}`,
+    leadId: `lead-${leadIndex + 1}`,
+    assignedMemberId: member.id,
+    title: followupTitles[index % followupTitles.length]!,
+    dueAt: new Date(Date.now() + offsetDays * 86_400_000).toISOString(),
+    status,
+  };
+});
+
+export const SYNTHETIC_FOLLOWUPS: SyntheticFollowup[] = [...manualFollowups, ...generatedFollowups];
+
+/**
+ * Contenido sintético fijo del panel de IA (docs/specs/LF-003.md §2.1/§4, etapa 2).
+ * Nunca generado en tiempo real, nunca conectado a un proveedor: es exactamente
+ * el mismo texto en cada carga, para dejar claro que es un ejemplo de diseño,
+ * no una llamada real a un modelo.
+ */
+export const SYNTHETIC_AI_SUMMARY =
+  "Esta semana se crearon 4 prospectos nuevos, principalmente por sitio web y referidos. " +
+  "Café Altiplano y Taller Rodamientos Sur tienen la actividad más reciente. Hay 3 seguimientos " +
+  "vencidos que podrían perder impulso si no se contactan pronto.";
+
+export interface SyntheticAiRecommendation {
+  id: string;
+  leadId?: string;
+  text: string;
+}
+
+export const SYNTHETIC_AI_RECOMMENDATIONS: SyntheticAiRecommendation[] = [
+  { id: "rec-1", leadId: "lead-1", text: "Café Altiplano lleva 2 días sin respuesta tras pedir la propuesta — un seguimiento corto podría reactivar la conversación." },
+  { id: "rec-2", leadId: "lead-2", text: "Taller Rodamientos Sur tuvo una reunión de descubrimiento hace poco; es buen momento para enviar un resumen por escrito." },
+  { id: "rec-3", text: "Tres prospectos de origen \"llamada en frío\" no tienen interacciones registradas todavía — podrían necesitar un primer contacto." },
+];
+
+export interface SyntheticAiDraft {
+  leadId: string;
+  subject: string;
+  body: string;
+}
+
+export const SYNTHETIC_AI_DRAFT: SyntheticAiDraft = {
+  leadId: "lead-1",
+  subject: "Siguientes pasos con LeadFlow AI",
+  body:
+    "Hola, gracias por tu interés. Adjunto los detalles que conversamos y quedo atenta a cualquier " +
+    "pregunta antes de agendar la demostración. Avísame qué día de la próxima semana te queda mejor.",
+};
 
 export function memberById(id: string): SyntheticMember | undefined {
   return SYNTHETIC_MEMBERS.find((member) => member.id === id);
