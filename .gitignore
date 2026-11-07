@@ -8,3 +8,7 @@ test-results/
 .env*
 !.env.example
 npm-debug.log*
+
+# LF-023: candado de exclusión real entre isolation/auth-boundary/lifecycle (fase 2,
+# solo se crea durante una ejecución real contra PostgreSQL).
+tests/integration/lf-002a/.lab-lock/
