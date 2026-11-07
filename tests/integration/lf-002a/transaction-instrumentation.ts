@@ -23,21 +23,37 @@
  *    BEGIN/COMMIT/ROLLBACK) se registran en `trace.error` y siempre se re-lanzan — nunca
  *    se ocultan ni se convierten en un resultado inventado.
  *
+ * Revisión independiente, CUARTA ronda (sobre el candidato `d5e7b2c`), hallazgo único: el
+ * punto 3 anterior seguía inventando una confirmación en un caso real — si `COMMIT`/
+ * `ROLLBACK` LANZABA (en vez de responder con un tag reconocido), el código asumía
+ * `'rolledback'` sin pruebas. Una excepción al enviar `COMMIT` no prueba que el servidor no
+ * lo haya aplicado: la conexión pudo perderse DESPUÉS de que el servidor confirmara el
+ * commit y ANTES de que el cliente recibiera esa respuesta — declarar `'rolledback'` ahí
+ * sería inventar una confirmación en la dirección contraria, igual de falsa que asumir
+ * `'committed'`. Se añade un cuarto estado, `'unknown'`: una excepción durante el cierre, o
+ * una respuesta exitosa sin un tag `'COMMIT'`/`'ROLLBACK'` reconocido, deja el resultado
+ * como `'unknown'`, nunca como `'rolledback'` supuesto. El estado de transacción activa
+ * (`currentRealTransactionId`) se limpia igual en ese caso: ninguna consulta posterior
+ * hereda el identificador de una transacción cuyo cierre quedó incierto, sea cual sea el
+ * motivo. El error y toda la evidencia disponible se conservan en `trace.error` de todos
+ * modos.
+ *
  * Puro en el sentido de esta fase: solo depende de query-classifier.ts (sin importaciones
  * externas) y de la interfaz mínima `InstrumentableConnection` — nunca de `pg` en sí. Es
  * ejecutable y probado AHORA con un doble inyectado (ver
  * tests/unit/lf-002a/transaction-instrumentation.test.ts: BEGIN→consulta→COMMIT, ROLLBACK,
- * consulta fuera de transacción, fallos, y el caso exacto de un COMMIT que el servidor
- * reporta como ROLLBACK). `auth.ts` la usa para instrumentar conexiones `pg.PoolClient`
- * reales (que satisfacen esta interfaz estructuralmente); la comprobación real contra
- * PostgreSQL de que `pg_current_xact_id()` se comporta como se espera aquí queda
- * pendiente, como el resto de esta fase, de la fase 2.
+ * consulta fuera de transacción, el caso exacto de un COMMIT que el servidor reporta como
+ * ROLLBACK, y los tres casos de cierre incierto: COMMIT con respuesta perdida, ROLLBACK con
+ * respuesta perdida, y un tag de cierre inesperado). `auth.ts` la usa para instrumentar
+ * conexiones `pg.PoolClient` reales (que satisfacen esta interfaz estructuralmente); la
+ * comprobación real contra PostgreSQL de que `pg_current_xact_id()`/los tags de comando se
+ * comportan como se espera aquí queda pendiente, como el resto de esta fase, de la fase 2.
  */
 import { classifyQuery, sqlMarker, type QueryClassification, type TransactionMarker } from './query-classifier.js';
 
 export type { QueryClassification, TransactionMarker };
 
-export type TransactionOutcome = 'open' | 'committed' | 'rolledback';
+export type TransactionOutcome = 'open' | 'committed' | 'rolledback' | 'unknown';
 
 export interface QueryTrace {
   /** SQL real tal como se envió, sin valores de parámetros — nunca material de sesión. */
@@ -59,9 +75,12 @@ export interface QueryTrace {
   readonly marker: TransactionMarker;
   readonly classification: QueryClassification;
   /** Éxito/fallo y cierre REAL del span transaccional al que pertenece esta traza,
-   * decidido por `result.command` (el tag que el servidor confirmó), nunca por el texto
-   * que se envió — retroactivamente puesto a 'committed'/'rolledback' cuando se observa el
-   * cierre; 'open' mientras la transacción sigue abierta. */
+   * decidido ÚNICAMENTE por `result.command` (el tag que el servidor confirmó), nunca por
+   * el texto que se envió: 'committed' solo si el tag fue 'COMMIT', 'rolledback' solo si
+   * fue 'ROLLBACK'. Si el intento de cierre lanzó una excepción, o respondió con éxito pero
+   * sin uno de esos dos tags, el resultado es 'unknown' — una excepción no prueba que el
+   * servidor no haya aplicado el commit antes de perderse la respuesta, así que nunca se
+   * asume 'rolledback' sin esa confirmación. 'open' mientras la transacción sigue abierta. */
   outcome: TransactionOutcome;
   /** Mensaje de error si esta consulta concreta falló, `null` si no. */
   error: string | null;
@@ -150,9 +169,14 @@ export function instrumentConnection(conn: InstrumentableConnection, instrumenta
     } catch (error) {
       trace.error = errorMessage(error);
       if (marker === 'commit' || marker === 'rollback') {
-        // Un COMMIT/ROLLBACK que lanza nunca confirmó la transacción — se cierra como
-        // fallida de todos modos, y el estado de transacción activa se limpia igual.
-        backfillOutcome(instrumentation.traces, spanId, 'rolledback');
+        // Una excepción al enviar COMMIT/ROLLBACK NUNCA prueba que el servidor no lo haya
+        // aplicado: la conexión pudo perderse después de que el servidor confirmara el
+        // commit y antes de que el cliente recibiera esa respuesta. Asumir 'rolledback'
+        // aquí sería inventar una confirmación tan falsa como asumir 'committed' — el
+        // resultado real es desconocido, nunca un valor supuesto. El estado de
+        // transacción activa se limpia igual: ninguna consulta posterior debe heredar el
+        // identificador de una transacción cuyo cierre quedó incierto.
+        backfillOutcome(instrumentation.traces, spanId, 'unknown');
         state.currentRealTransactionId = null;
       }
       throw error;
@@ -175,15 +199,18 @@ export function instrumentConnection(conn: InstrumentableConnection, instrumenta
         trace.error = trace.error ?? errorMessage(xidError);
       }
     } else if (marker === 'commit' || marker === 'rollback') {
-      // La verdad del cierre es el tag de comando que el SERVIDOR devolvió
+      // La verdad del cierre es ÚNICAMENTE el tag de comando que el SERVIDOR devolvió
       // (`result.command`), nunca el texto que se envió: tras un error dentro de la
       // transacción, Postgres convierte un COMMIT real en un ROLLBACK (transacción
-      // abortada), y `result.command` lo refleja como 'ROLLBACK', no 'COMMIT'.
-      const finalOutcome: TransactionOutcome = result.command === 'COMMIT' ? 'committed' : 'rolledback';
+      // abortada), y `result.command` lo refleja como 'ROLLBACK', no 'COMMIT'. Un tag que
+      // no sea ninguno de los dos reconocidos tampoco se asume como fallo: queda
+      // 'unknown', nunca 'rolledback' por defecto.
+      const finalOutcome: TransactionOutcome =
+        result.command === 'COMMIT' ? 'committed' : result.command === 'ROLLBACK' ? 'rolledback' : 'unknown';
       backfillOutcome(instrumentation.traces, spanId, finalOutcome);
-      // Limpiar SIEMPRE al cerrar, también en el caso infrecuente de que `result.command`
-      // no viniera: ninguna consulta posterior a un cierre debe quedar etiquetada con el
-      // xid de la transacción ya cerrada.
+      // Limpiar SIEMPRE al cerrar, incluido el caso 'unknown': ninguna consulta posterior
+      // a un intento de cierre debe quedar etiquetada con el xid de una transacción cuyo
+      // cierre ya sea confirmado o incierto.
       state.currentRealTransactionId = null;
     }
 

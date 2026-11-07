@@ -1,11 +1,15 @@
 /**
  * Pruebas offline y ejecutables ahora (sin `pg`, con una conexión doble inyectada) de
  * tests/integration/lf-002a/transaction-instrumentation.ts — hallazgo 2 de la tercera
- * ronda de revisión independiente sobre el candidato `bde090b`. Cubren exactamente los
- * tres bugs reportados (propagación de `realTransactionId` a consultas posteriores al
- * BEGIN, limpieza del estado al cerrar, y verdad del cierre por `result.command` real en
- * vez del texto enviado), más los casos explícitamente pedidos: BEGIN → consulta → COMMIT,
- * ROLLBACK, consulta fuera de transacción, y fallos.
+ * ronda de revisión independiente sobre el candidato `bde090b`, y el hallazgo único de la
+ * CUARTA ronda sobre el candidato `d5e7b2c`. Cubren los tres bugs de la tercera ronda
+ * (propagación de `realTransactionId` a consultas posteriores al BEGIN, limpieza del
+ * estado al cerrar, y verdad del cierre por `result.command` real en vez del texto
+ * enviado), los casos explícitamente pedidos entonces (BEGIN → consulta → COMMIT,
+ * ROLLBACK, consulta fuera de transacción), y el hallazgo de la cuarta ronda: una
+ * excepción al cerrar (COMMIT/ROLLBACK con la respuesta perdida) o un tag de cierre no
+ * reconocido nunca deben registrarse como `'rolledback'` por defecto — eso inventaría una
+ * confirmación que nadie dio; el resultado correcto es `'unknown'`.
  *
  * Demuestran la lógica de instrumentación contra un doble que simula las respuestas de
  * PostgreSQL; NUNCA sustituyen la comprobación pendiente contra PostgreSQL real (fase 2,
@@ -168,19 +172,59 @@ describe('transaction-instrumentation: fallos', () => {
     expect(commitTrace.outcome).toBe('rolledback'); // ...pero el cierre real nunca se decide por ese texto
   });
 
-  test('si el propio COMMIT lanza, se registra el error y se cierra como rolledback de todos modos', async () => {
+  test('hallazgo de la cuarta ronda: si el propio COMMIT lanza (la respuesta se pierde), el resultado es unknown, nunca rolledback supuesto', async () => {
+    // La excepción no prueba que el servidor NO haya aplicado el commit: la conexión pudo
+    // perderse después de que el servidor lo confirmara y antes de que el cliente
+    // recibiera esa respuesta. Asumir 'rolledback' aquí sería inventar una confirmación
+    // tan falsa como asumir 'committed' — el resultado correcto es 'unknown'.
     const conn = new FakeConnection();
     const instrumentation = instrument(conn);
 
     await conn.query('begin');
-    conn.nextQueryThrows = new Error('could not serialize access due to concurrent update');
-    await expect(conn.query('commit')).rejects.toThrow('could not serialize access');
+    conn.nextQueryThrows = new Error('Connection terminated unexpectedly');
+    await expect(conn.query('commit')).rejects.toThrow('Connection terminated unexpectedly');
 
     for (const trace of instrumentation.traces) {
-      expect(trace.outcome).toBe('rolledback');
+      expect(trace.outcome).toBe('unknown');
     }
     const commitTrace = instrumentation.traces.at(-1)!;
-    expect(commitTrace.error).toBe('could not serialize access due to concurrent update');
+    expect(commitTrace.error).toBe('Connection terminated unexpectedly');
+    expect(commitTrace.marker).toBe('commit');
+  });
+
+  test('ROLLBACK con la respuesta perdida: también unknown, nunca committed ni rolledback supuestos', async () => {
+    const conn = new FakeConnection();
+    const instrumentation = instrument(conn);
+
+    await conn.query('begin');
+    await conn.query('select 1');
+    conn.nextQueryThrows = new Error('Connection terminated unexpectedly');
+    await expect(conn.query('rollback')).rejects.toThrow('Connection terminated unexpectedly');
+
+    for (const trace of instrumentation.traces) {
+      expect(trace.outcome).toBe('unknown');
+    }
+    // El estado de transacción activa se limpia igual tras un cierre incierto: una
+    // consulta posterior nunca hereda el xid de esta transacción.
+    await conn.query('select 2');
+    expect(instrumentation.traces.at(-1)!.realTransactionId).toBeNull();
+  });
+
+  test('un tag de cierre inesperado (ni COMMIT ni ROLLBACK) en una respuesta exitosa también es unknown, nunca se asume desde el texto enviado', async () => {
+    const conn = new FakeConnection();
+    const instrumentation = instrument(conn);
+
+    await conn.query('begin');
+    // Respuesta "exitosa" (no lanza) pero con un tag de comando que no es ninguno de los
+    // dos reconocidos — p. ej. un proxy/pooler que reescribe o normaliza la respuesta de
+    // forma inesperada. No ejecutado contra PostgreSQL real; simula una respuesta cuyo
+    // tag esta instrumentación no puede interpretar como cierre confirmado.
+    conn.closeCommandOverride = 'ROLLBACK TO SAVEPOINT';
+    await conn.query('commit');
+
+    for (const trace of instrumentation.traces) {
+      expect(trace.outcome).toBe('unknown');
+    }
   });
 
   test('si la consulta interna de pg_current_xact_id() falla, el BEGIN no lanza, pero su xid y el de las consultas siguientes quedan null', async () => {
