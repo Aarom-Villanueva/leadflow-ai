@@ -113,4 +113,3 @@ revoke all on function lf_create_organization(text,text,text,uuid) from public;
 revoke all on organizations,memberships,organization_audit from public;
 
 commit;
-
