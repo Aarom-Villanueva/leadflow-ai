@@ -1,0 +1,37 @@
+/**
+ * Tokens de la propuesta de diseño LF-003 (docs/specs/LF-003.md §5).
+ * Aditivo: nunca redefine ni elimina los colores por defecto de Tailwind ya
+ * usados por la portada pública (LF-001, src/app/page.tsx). Solo se carga en
+ * las rutas bajo /design, aisladas de src/app/layout.tsx/globals.css.
+ */
+:root {
+  --surface: #101b20;
+  --surface-raised: #152228;
+  --border: #263238;
+  --border-strong: #34434a;
+
+  --text-primary: #edf3f1;
+  --text-secondary: #aab8b8;
+  --text-tertiary: #7f8e8e;
+
+  --accent: #c6f76a;
+  --accent-strong: #b2e85a;
+
+  --success: #86efac;
+  --warning: #fcd34d;
+  --danger: #fca5a5;
+  --info: #93c5fd;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.lf-design-root {
+  font-family: var(--font-ui);
+  background: #0b1418;
+  color: var(--text-primary);
+  min-height: 100vh;
+}
