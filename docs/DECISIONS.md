@@ -14,5 +14,11 @@ Estado de decisiones: D-001 aprobada para la base técnica y desarrollo sin desp
 | D-007 | OpenAI inicial detrás de puerto; modelo por allowlist; sin herramientas ni envío | Otros proveedores posibles sin cambiar dominio; SDK/modelo exacto según disponibilidad/precio y políticas. | Pendiente: propietario antes LF-009 |
 | D-008 | Monetización diferida fuera del MVP: ninguna pasarela de pago ni facturación se integra en LF-001…LF-010. `ai_usage_buckets.limit_units` y las cuotas de SECURITY.md permanecen configurables por organización para que un mapeo futuro a planes no exija rediseño de esquema | Ignorar planes por completo arriesga rediseño de cuotas más adelante; construir facturación ahora sin clientes de pago es sobreingeniería prematura | Pendiente: propietario decide cuándo abrir una fase de facturación (no numerada todavía), no antes de validar el producto con usuarios reales |
 
+## Concreción de desarrollo LF-025
+
+Tras integrar LF-023 y aprobar e integrar el diseño LF-003, el propietario solicitó conectar registro/login/organizaciones/permisos reales. LF-025 aplica en desarrollo la recomendación de D-002: núcleo Better Auth para identidad y una única tabla propia memberships, sin plugin de organizaciones. El nuevo esquema y bootstrap requieren revisión independiente del PR antes de integrar.
+
+D-003 permanece limitada a desarrollo sin correo externo: no se inventa proveedor ni se declara completa recuperación/verificación/invitaciones. No se aprueba producción, presupuesto, correo real ni tratamiento de datos reales. Esta concreción no cambia approved_decisions ni bloqueos de BACKLOG: AUTOPILOT sigue en pausa; LF-025 es trabajo manual bajo la solicitud del propietario.
+
 ## Procedimiento
 Cada decisión aprobada registra fecha, aprobador, PR/commit revisado, motivación, alcance y consecuencias. No convertir silencio en aprobación. Cambios posteriores agregan decisión que sustituye la anterior; actualizar especificaciones afectadas. Claude ofrece revisión independiente; el propietario decide. No hay despliegue ni gasto autorizado en LF-000.

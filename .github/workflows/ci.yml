@@ -42,6 +42,19 @@ jobs:
     if: needs.coordination.outputs.foundation == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      identity-postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: lf025_identity_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
@@ -58,6 +71,19 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - name: Identity integration (disposable PostgreSQL, no real credentials)
+        env:
+          IDENTITY_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf025_identity_test
+        run: npx --no-install vitest run --config vitest.identity.config.ts
       - run: npm run build
       - run: npx --no-install playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Real identity browser flow (ephemeral secret)
+        env:
+          DATABASE_URL: postgres://lf025_test_runtime@127.0.0.1:5432/lf025_identity_test
+          APP_ORIGIN: http://127.0.0.1:4310
+        shell: bash
+        run: |
+          export AUTH_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
+          echo "::add-mask::$AUTH_SECRET"
+          npx --no-install playwright test --config playwright.identity.config.ts
