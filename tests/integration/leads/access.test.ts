@@ -133,6 +133,13 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
       expect(await leadHistory(runtime, a.id, orgA, lead.id)).toHaveLength(1);
     } finally { await admin.query("alter table organization_audit drop constraint lf026_reject_move"); }
   });
+  test("history follows committed lead versions even when timestamps collide and UUIDs sort oppositely", async () => {
+    const lead = await createLead(runtime, a.id, orgA, input("Same millisecond"));
+    await updateLead(runtime, a.id, orgA, lead.id, { version: 1, stageId: won });
+    // Administrator changes only synthetic test rows to make the ordering edge deterministic.
+    await admin.query("update lead_stage_events set happened_at='2026-01-01T00:00:00Z',id=case when lead_version=1 then 'ffffffff-ffff-4fff-8fff-ffffffffffff'::uuid else '00000000-0000-4000-8000-000000000001'::uuid end where lead_id=$1", [lead.id]);
+    expect((await leadHistory(runtime, a.id, orgA, lead.id)).map(event => [event.fromStage, event.toStage])).toEqual([[null, "Nuevo"], ["Nuevo", "Ganado"]]);
+  });
   test("RLS rejects absent/wrong context and connection reuse does not retain it", async () => {
     expect((await runtime.query("select id from leads")).rows).toEqual([]);
     await expect(runtime.query("insert into leads(organization_id,name,stage_id) values($1,'No context',$2)", [orgA, stageA])).rejects.toThrow();

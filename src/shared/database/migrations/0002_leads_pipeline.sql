@@ -48,16 +48,17 @@ create table lead_stage_events(
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references organizations(id),
   lead_id uuid not null,
+  lead_version integer not null check(lead_version>0),
   from_stage_id uuid,
   to_stage_id uuid not null,
   actor_user_id text not null,
   happened_at timestamptz(3) not null default clock_timestamp(),
+  unique(organization_id,lead_id,lead_version),
   foreign key(organization_id,lead_id) references leads(organization_id,id),
   foreign key(organization_id,from_stage_id) references stages(organization_id,id),
   foreign key(organization_id,to_stage_id) references stages(organization_id,id),
   foreign key(organization_id,actor_user_id) references memberships(organization_id,user_id)
 );
-create index lead_events_idx on lead_stage_events(organization_id,lead_id,happened_at,id);
 
 -- Backfill runs before RLS is enabled, in this same uncommitted migration.
 insert into pipelines(organization_id) select id from organizations;
@@ -147,8 +148,8 @@ begin
   elsif new.stage_id<>old.stage_id then action_name:='lead.stage_changed';
   else action_name:='lead.updated'; end if;
   if tg_op='INSERT' or new.stage_id<>old.stage_id then
-    insert into public.lead_stage_events(organization_id,lead_id,from_stage_id,to_stage_id,actor_user_id)
-      values(new.organization_id,new.id,case when tg_op='INSERT' then null else old.stage_id end,new.stage_id,actor);
+    insert into public.lead_stage_events(organization_id,lead_id,lead_version,from_stage_id,to_stage_id,actor_user_id)
+      values(new.organization_id,new.id,new.version,case when tg_op='INSERT' then null else old.stage_id end,new.stage_id,actor);
   end if;
   insert into public.organization_audit(organization_id,actor_user_id,action,entity_id,request_id)
     values(new.organization_id,actor,action_name,new.id,nullif(current_setting('app.request_id',true),'')::uuid);

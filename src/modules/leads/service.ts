@@ -98,7 +98,7 @@ export async function leadHistory(db: Pool, actor: string, org: string, id: stri
       left join stages f on f.organization_id=e.organization_id and f.id=e.from_stage_id
       join stages t on t.organization_id=e.organization_id and t.id=e.to_stage_id
       left join "user" u on u.id=e.actor_user_id
-      where e.organization_id=$1 and e.lead_id=$2 order by e.happened_at,e.id`, [org, id])).rows;
+      where e.organization_id=$1 and e.lead_id=$2 order by e.lead_version`, [org, id])).rows;
   });
 }
 export async function configureStage(db: Pool, actor: string, org: string, raw: unknown, id?: string): Promise<Stage> {
