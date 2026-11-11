@@ -504,7 +504,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-027",
       "owner": "ChatGPT",
       "branch": "impl/lf-027-interactions-followups",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -528,6 +528,32 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "scripts/check-coordination.mjs",
         "tests/coordination/release.test.mjs",
         "src/components/ui/dialog.tsx"
+      ],
+      "completion": {
+        "head_sha": "be6ed88f7625bec408f2f2b8c32d42d8be1dce25",
+        "merge_sha": "26ca90b6d350436b9050033ab4c9c77f1079218e"
+      }
+    },
+    {
+      "id": "LF-028",
+      "owner": "Claude",
+      "branch": "claude/great-hopper-au1q2b",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-028.md",
+        "src/modules/analytics/**",
+        "src/modules/leads/workspace.tsx",
+        "src/app/app/[[]organizationId]/page.tsx",
+        "src/app/app/[[]organizationId]/dashboard/**",
+        "src/app/api/organizations/[[]organizationId]/dashboard/**",
+        "tests/unit/analytics/**",
+        "tests/integration/analytics/**",
+        "tests/analytics-e2e/**",
+        "vitest.analytics.config.ts",
+        "playwright.analytics.config.ts",
+        ".github/workflows/ci.yml"
       ]
     }
   ]
@@ -910,3 +936,12 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Revisión independiente sin hallazgos bloqueantes/medios/altos; dos bajos corregidos: NUL/sustitutos UTF-16 sueltos ahora 422 sin cambios de actividad/auditoría ni pérdida silenciosa (el intento consume límite), y foco en encabezado estable después de confirmar completar/cancelar y retirar la tarjeta. Volver/Escape siguen devolviendo foco al disparador. No cambios de esquema/migraciones, RLS, permisos, idempotencia o gate.
 - Local: 122/122 unitarias, integración de actividad 16/16 PostgreSQL 18, navegador actividad 1/1 Edge con confirmaciones/retorno de foco y axe, lint/tipos/build limpios. Las tres regresiones de texto fallan contra los contratos del SHA auditado y pasan con los nuevos. Laboratorio LF-027 separado, detenido después de validar, sin tocar el servicio Windows. CI del nuevo SHA se observa tras publicar, sin reutilizar el del anterior.
 - Informativos documentados: cursor asOf modificable sin autenticidad temporal (no afecta RLS); detalle vacío/null distintos para hashes existentes. El nombre de prospecto legado queda fuera de esta corrección. Sin cambios de paquetes/BACKLOG, design, agentes, proveedores o despliegue. Misma reserva LF-027 y PR #24 DRAFT; revisión independiente del delta pendiente, no autorización de merge.
+
+## LF-028 — dashboard real completo
+
+- Responsable: Claude. Revisor independiente: Codex, pendiente. Rama `claude/great-hopper-au1q2b` (la rama designada de la sesión, reiniciada desde main porque solo contenía historia ya integrada), base `26ca90b6d350436b9050033ab4c9c77f1079218e`. El propietario autorizó implementar el dashboard real completo tras integrar LF-027; no autoriza merge ni despliegue.
+- LF-027 completed con evidencia Git real del merge de PR #24: head `be6ed88f7625bec408f2f2b8c32d42d8be1dce25`, merge `26ca90b6d350436b9050033ab4c9c77f1079218e` (padres `5d577336…` y `be6ed88f…`), comprobado en el main real antes de registrar.
+- Reserva registrada antes de código: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-028.md`, `src/modules/analytics/**`, `src/modules/leads/workspace.tsx`, `src/app/app/[[]organizationId]/page.tsx`, `src/app/app/[[]organizationId]/dashboard/**`, `src/app/api/organizations/[[]organizationId]/dashboard/**`, `tests/unit/analytics/**`, `tests/integration/analytics/**`, `tests/analytics-e2e/**`, `vitest.analytics.config.ts`, `playwright.analytics.config.ts`, `.github/workflows/ci.yml`.
+- Alcance: métricas R08 calculadas con consultas PostgreSQL reales por organización (prospectos por etapa, conversión a ganado por cohorte, seguimientos pendientes/vencidos), endpoint de lectura con sesión/membresía/RLS, pantalla real `/app/:org/dashboard` con los componentes aprobados y pruebas unitarias, PostgreSQL real y navegador. Contrato y decisiones explícitas en docs/specs/LF-028.md.
+- Sin migración ni cambio de esquema, permisos o dependencias: solo lectura sobre 0001–0003 con los grants existentes. `/design`, BACKLOG y AUTOPILOT sin cambios. La fila LF-006 del roadmap original (dashboard real) queda cubierta por esta tarea; no se edita esa fila ni BACKLOG.json.
+- Pruebas en clúster PostgreSQL descartable propio y PostgreSQL 16 de CI, con datos sintéticos. Sin proveedores, credenciales productivas, IA, correo ni gastos.
