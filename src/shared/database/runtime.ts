@@ -7,7 +7,7 @@ let checked: Promise<void> | undefined;
 export async function assertRuntimeRole(connection: Pool | PoolClient) {
   const { rows } = await connection.query<{ unsafe: boolean }>(`
     select r.rolsuper or r.rolbypassrls or r.rolcreatedb or r.rolcreaterole
-      or exists(select 1 from pg_class c where c.relname in ('organizations','memberships')
+      or exists(select 1 from pg_class c where c.relname in ('organizations','memberships','pipelines','stages','leads','lead_stage_events')
         and c.relnamespace='public'::regnamespace and pg_has_role(current_user,c.relowner,'MEMBER'))
       or exists(select 1 from pg_roles inherited where pg_has_role(current_user,inherited.oid,'MEMBER')
         and (inherited.rolsuper or inherited.rolbypassrls or inherited.rolcreatedb or inherited.rolcreaterole)) as unsafe
