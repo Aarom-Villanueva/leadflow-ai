@@ -1,17 +1,17 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { execFileSync, spawn } from "node:child_process";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { handleAuth } from "../../../src/modules/identity/http";
 import { organizationsRequest } from "../../../src/modules/organizations/http";
 import { leadsRequest, type Action } from "../../../src/modules/leads/http";
-import { createLead, listLeads, pipelineMetadata, updateLead, withOrganization, configureStage, leadHistory } from "../../../src/modules/leads/service";
+import { createLead, getLead, listLeads, pipelineMetadata, updateLead, withOrganization, configureStage, leadHistory } from "../../../src/modules/leads/service";
 import { identityPool } from "../../../src/shared/database/runtime";
 
 const origin = "http://127.0.0.1:4311";
 let admin: Pool, runtime: Pool, owner: Pool;
 let a: { cookie: string; id: string }, b: { cookie: string; id: string }, sales: { cookie: string; id: string };
-let orgA: string, orgB: string, stageA: string, stageB: string, won: string;
+let orgA: string, orgB: string, duringMigration: string, stageA: string, stageB: string, won: string;
 let provisionerUrl: URL;
 const request = (method: string, cookie: string, body?: unknown, source: string | null = origin, query = "") => new Request(origin + "/api/test" + query, {
   method, headers: { cookie, "content-type": "application/json", ...(source ? { origin: source } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -28,6 +28,33 @@ async function organization(user: typeof a, slug: string) {
 const input = (name: string, stageId = stageA) => ({ name, stageId, email: null, phoneE164: null, source: null, assignedUserId: null });
 const call = (action: Action, cookie = a.cookie, body?: unknown, id = "", org = orgA, source: string | null = origin, query = "") => leadsRequest(request(({ list: "GET", get: "GET", history: "GET", pipeline: "GET", update: "PATCH", updateStage: "PATCH" } as Partial<Record<Action, string>>)[action] ?? "POST", cookie, body, source, query), org, action, id);
 function migrate() { return execFileSync(process.execPath, ["scripts/leads/migrate.mjs"], { env: { ...process.env, IDENTITY_MIGRATION_URL: provisionerUrl.toString(), IDENTITY_RUNTIME_ROLE: "lf026_test_runtime" }, encoding: "utf8", stdio: "pipe" }); }
+async function waitForBlockedBy(blocker: number): Promise<number> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const result = await admin.query("select pid from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and $1=any(pg_blocking_pids(pid))", [blocker]);
+    if (result.rows[0]) return result.rows[0].pid;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw Error("Expected a real blocked PostgreSQL session");
+}
+async function migrateWithOrganizationInFlight() {
+  const blocker = await admin.connect();
+  await blocker.query("begin; lock table memberships in row exclusive mode");
+  const blockerPid = (await blocker.query("select pg_backend_pid() pid")).rows[0].pid;
+  const child = spawn(process.execPath, ["scripts/leads/migrate.mjs"], { env: { ...process.env, IDENTITY_MIGRATION_URL: provisionerUrl.toString(), IDENTITY_RUNTIME_ROLE: "lf026_test_runtime" }, stdio: "pipe" });
+  child.stdout.resume(); child.stderr.resume();
+  const finished = new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+  let creation: Promise<string> | undefined;
+  try {
+    const migratorPid = await waitForBlockedBy(blockerPid);
+    creation = organization(a, "during-migration-team");
+    // This proves the call has entered 0001 and is waiting on organizations, not just queued in Node.
+    await waitForBlockedBy(migratorPid);
+  } finally { await blocker.query("rollback"); blocker.release(); }
+  expect(await finished).toBe(0);
+  if (!creation) throw Error("Concurrent organization was not started");
+  duringMigration = await creation;
+}
 
 describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
   beforeAll(async () => {
@@ -61,7 +88,7 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
       expect((await admin.query("select to_regclass('public.app_migrations') as ledger,to_regclass('public.pipelines') as pipeline")).rows[0]).toEqual({ ledger: null, pipeline: null });
       expect((await admin.query("select 1 from information_schema.columns where table_name='organization_audit' and column_name='entity_id'")).rowCount).toBe(0);
     } finally { await admin.query("drop event trigger lf026_ddl_failure; drop function lf026_fail_ddl()"); }
-    migrate();
+    await migrateWithOrganizationInFlight();
     const meta = await pipelineMetadata(runtime, a.id, orgA);
     stageA = meta.stages[0].id; won = meta.stages.find(stage => stage.kind === "won")!.id;
     stageB = (await pipelineMetadata(runtime, b.id, orgB)).stages[0].id;
@@ -72,11 +99,28 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
   test("incremental migration preserves organizations and backfills defaults; repeat verifies checksum", async () => {
     expect((await pipelineMetadata(runtime, a.id, orgA)).stages).toHaveLength(5);
     expect(migrate()).toContain("already applied");
-    expect((await admin.query("select count(*)::int n from organizations")).rows[0].n).toBe(2);
+    expect((await admin.query("select count(*)::int n from organizations")).rows[0].n).toBe(3);
     const id = await organization(a, "post-migration-team");
     expect((await pipelineMetadata(runtime, a.id, id)).stages).toHaveLength(5);
     await owner.query("update app_migrations set sha256='invalid'");
     try { expect(() => migrate()).toThrow(); } finally { await owner.query("update app_migrations set sha256=$1", [(await import("node:crypto")).createHash("sha256").update((await import("node:fs")).readFileSync("src/shared/database/migrations/0002_leads_pipeline.sql", "utf8").replace(/\r\n/g, "\n")).digest("hex")]); }
+  });
+  test("an organization already executing 0001 while 0002 migrates gets a pipeline and five stages", async () => {
+    const meta = await pipelineMetadata(runtime, a.id, duringMigration);
+    expect(meta.stages).toHaveLength(5);
+    expect(meta.stages.map(stage => stage.kind)).toEqual(["open", "open", "open", "won", "lost"]);
+    expect(migrate()).toContain("already applied");
+    expect((await pipelineMetadata(runtime, a.id, duringMigration)).stages).toHaveLength(5);
+  });
+  test("a bootstrap stage failure rolls back organization, membership, pipeline and audit", async () => {
+    const counts = async () => (await admin.query("select (select count(*) from organizations)::int organizations,(select count(*) from memberships)::int memberships,(select count(*) from pipelines)::int pipelines,(select count(*) from stages)::int stages,(select count(*) from organization_audit)::int audit")).rows[0];
+    const before = await counts();
+    await admin.query("alter table stages add constraint lf026_fail_bootstrap check(name<>'Propuesta') not valid");
+    try {
+      const response = await organizationsRequest(request("POST", a.cookie, { name: "Failed bootstrap", slug: "failed-bootstrap-team", timezone: "America/Lima" }));
+      expect(response.status).toBe(503);
+      expect(await counts()).toEqual(before);
+    } finally { await admin.query("alter table stages drop constraint lf026_fail_bootstrap"); }
   });
   test("anonymous, tampered session, hostile or missing origin and oversized body fail", async () => {
     expect((await call("list", "")).status).toBe(401);
@@ -111,6 +155,17 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
     const results = await Promise.all(["First", "Second"].map(name => call("update", a.cookie, { version: 1, name }, lead.id)));
     expect(results.map(response => response.status).sort()).toEqual([200, 409]);
   });
+  test("detail and history reads do not wait for a lead write lock", async () => {
+    const lead = await createLead(runtime, a.id, orgA, input("Nonblocking reads"));
+    const writer = await admin.connect();
+    const reader = new Pool({ connectionString: process.env.DATABASE_URL, options: "-c lock_timeout=250ms" });
+    try {
+      await writer.query("begin");
+      await writer.query("select id from leads where id=$1 for update", [lead.id]);
+      expect((await getLead(reader, a.id, orgA, lead.id)).id).toBe(lead.id);
+      expect(await leadHistory(reader, a.id, orgA, lead.id)).toHaveLength(1);
+    } finally { await writer.query("rollback"); writer.release(); await reader.end(); }
+  });
   test("moving stages records one event; same stage does not; archive preserves history and rejects editing", async () => {
     const lead = await createLead(runtime, a.id, orgA, input("Move and archive"));
     await updateLead(runtime, a.id, orgA, lead.id, { version: 1, stageId: won });
@@ -140,6 +195,20 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
     await admin.query("update lead_stage_events set happened_at='2026-01-01T00:00:00Z',id=case when lead_version=1 then 'ffffffff-ffff-4fff-8fff-ffffffffffff'::uuid else '00000000-0000-4000-8000-000000000001'::uuid end where lead_id=$1", [lead.id]);
     expect((await leadHistory(runtime, a.id, orgA, lead.id)).map(event => [event.fromStage, event.toStage])).toEqual([[null, "Nuevo"], ["Nuevo", "Ganado"]]);
   });
+  test("creation and archival roll back on audit failure, and creation rolls back on event failure", async () => {
+    const lead = await createLead(runtime, a.id, orgA, input("Archive rollback"));
+    const before = (await admin.query("select (select count(*) from leads)::int leads,(select count(*) from lead_stage_events)::int events,(select count(*) from organization_audit)::int audit")).rows[0];
+    await admin.query("alter table organization_audit add constraint lf026_reject_create_archive check(action not in('lead.created','lead.archived')) not valid");
+    try {
+      await expect(createLead(runtime, a.id, orgA, input("Failed creation"))).rejects.toThrow();
+      await expect(updateLead(runtime, a.id, orgA, lead.id, { version: 1 }, true)).rejects.toThrow();
+      expect((await admin.query("select archived_at,version from leads where id=$1", [lead.id])).rows[0]).toEqual({ archived_at: null, version: 1 });
+    } finally { await admin.query("alter table organization_audit drop constraint lf026_reject_create_archive"); }
+    await admin.query("alter table lead_stage_events add constraint lf026_reject_initial check(from_stage_id is not null) not valid");
+    try { await expect(createLead(runtime, a.id, orgA, input("Failed event"))).rejects.toThrow(); }
+    finally { await admin.query("alter table lead_stage_events drop constraint lf026_reject_initial"); }
+    expect((await admin.query("select (select count(*) from leads)::int leads,(select count(*) from lead_stage_events)::int events,(select count(*) from organization_audit)::int audit")).rows[0]).toEqual(before);
+  });
   test("RLS rejects absent/wrong context and connection reuse does not retain it", async () => {
     expect((await runtime.query("select id from leads")).rows).toEqual([]);
     await expect(runtime.query("insert into leads(organization_id,name,stage_id) values($1,'No context',$2)", [orgA, stageA])).rejects.toThrow();
@@ -149,8 +218,9 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
     expect((await runtime.query("select current_setting('app.organization_id',true) as ctx")).rows[0].ctx || "").toBe("");
     const forced = await admin.query("select relname,relrowsecurity,relforcerowsecurity from pg_class where relnamespace='public'::regnamespace and relname in('leads','lead_stage_events') order by relname");
     expect(forced.rows).toEqual([{ relname: "lead_stage_events", relrowsecurity: true, relforcerowsecurity: true }, { relname: "leads", relrowsecurity: true, relforcerowsecurity: true }]);
-    const functions = await admin.query("select bool_and(prosecdef and proconfig @> array['search_path=pg_catalog']) as fixed from pg_proc where proname in('lf_validate_lead','lf_record_lead','lf_lock_stage','lf_lock_membership')");
+    const functions = await admin.query("select count(*)::int n,bool_and(prosecdef and proconfig @> array['search_path=pg_catalog']) as fixed,bool_and(not exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE')) as restricted from pg_proc p where pronamespace='public'::regnamespace and proname in('lf_create_organization','lf_bootstrap_pipeline','lf_validate_lead','lf_record_lead','lf_lock_stage','lf_lock_membership','lf_lock_assignee','lf_organization_members')");
     expect(functions.rows[0].fixed).toBe(true);
+    expect(functions.rows[0].n).toBe(8); expect(functions.rows[0].restricted).toBe(true);
   });
   test("stage configuration enforces role, usage, last terminal kind, ordering and versions", async () => {
     expect((await call("createStage", sales.cookie, { name: "Forbidden", kind: "open" })).status).toBe(403);
@@ -177,6 +247,68 @@ describe("LF-026 real PostgreSQL tenant and commercial boundary", () => {
     const first = await listLeads(runtime, a.id, orgA, { q: "Cursor", limit: 1 });
     expect((await call("list", a.cookie, undefined, "", orgA, origin, "?q=Different&cursor=" + first.nextCursor)).status).toBe(422);
     for (const query of ["?limit=51", "?limit=-1", "?unexpected=1", "?limit=1&limit=2", "?cursor=invalid"]) expect((await call("list", a.cookie, undefined, "", orgA, origin, query)).status).toBe(422);
+  });
+  test("stage configuration serializes concurrent creates and preserves the last active terminal type", async () => {
+    const org = await organization(a, "concurrent-stages-team");
+    const created = await Promise.all(["Stage A", "Stage B", "Stage C"].map(name => configureStage(runtime, a.id, org, { name, kind: "open" })));
+    expect(created.map(stage => stage.position).sort()).toEqual([6, 7, 8]);
+    const extraWon = await configureStage(runtime, a.id, org, { name: "Second won", kind: "won" });
+    const originalWon = (await pipelineMetadata(runtime, a.id, org)).stages.find(stage => stage.kind === "won" && stage.id !== extraWon.id)!;
+    const results = await Promise.all([originalWon, extraWon].map(stage => call("updateStage", a.cookie, { version: stage.version, active: false }, stage.id, org)));
+    expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+    expect((await pipelineMetadata(runtime, a.id, org)).stages.filter(stage => stage.active && stage.kind === "won")).toHaveLength(1);
+    const lead = await createLead(runtime, a.id, org, input("Archived stage reference", created[0].id));
+    await updateLead(runtime, a.id, org, lead.id, { version: 1 }, true);
+    for (const patch of [{ kind: "lost" }, { active: false }]) expect((await call("updateStage", a.cookie, { version: created[0].version, ...patch }, created[0].id, org)).status).toBe(409);
+  });
+  test("assignment and assignee revocation serialize in both directions", async () => {
+    const assignee = await signup("assignment-lock");
+    await admin.query("insert into memberships(organization_id,user_id,role) values($1,$2,'sales')", [orgA, assignee.id]);
+    const revoker = await admin.connect();
+    try {
+      await revoker.query("begin");
+      const pid = (await revoker.query("select pg_backend_pid() pid")).rows[0].pid;
+      await revoker.query("update memberships set revoked_at=now() where organization_id=$1 and user_id=$2", [orgA, assignee.id]);
+      const assignment = createLead(runtime, a.id, orgA, { ...input("Reject pending revocation"), assignedUserId: assignee.id }).then(value => ({ value, error: null }), error => ({ value: null, error }));
+      try { await waitForBlockedBy(pid); } finally { await revoker.query("commit"); }
+      expect((await assignment).error).toMatchObject({ code: "23514" });
+    } finally { await revoker.query("rollback"); revoker.release(); }
+    await admin.query("update memberships set revoked_at=null where organization_id=$1 and user_id=$2", [orgA, assignee.id]);
+    let entered!: () => void, release!: () => void;
+    const admitted = new Promise<void>(resolve => { entered = resolve; });
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    let assignmentPid = 0;
+    const assignment = withOrganization(runtime, a.id, orgA, async ({ client }) => {
+      assignmentPid = (await client.query("select pg_backend_pid() pid")).rows[0].pid;
+      await client.query("insert into leads(organization_id,name,stage_id,assigned_user_id) values($1,'Assignment in flight',$2,$3)", [orgA, stageA, assignee.id]);
+      entered(); await hold;
+    });
+    await admitted;
+    const secondRevoker = await admin.connect();
+    const revoked = secondRevoker.query("update memberships set revoked_at=now() where organization_id=$1 and user_id=$2", [orgA, assignee.id]);
+    try { await waitForBlockedBy(assignmentPid); }
+    finally { release(); await assignment; await revoked; secondRevoker.release(); }
+    expect((await listLeads(runtime, a.id, orgA, { q: "Assignment in flight" })).leads[0].assignedUserId).toBe(assignee.id);
+  });
+  test("120 mutation attempts share one identity counter across route spellings; malformed IDs allocate none", async () => {
+    const limited = await signup("limited");
+    const org = await organization(limited, "limited-team");
+    const before = (await admin.query("select count(*)::int n from auth_attempts")).rows[0].n;
+    for (let index = 0; index < 10; index++) expect((await call("create", limited.cookie, {}, "", "invalid-" + index)).status).toBe(404);
+    expect((await admin.query("select count(*)::int n from auth_attempts")).rows[0].n).toBe(before);
+    const key = createHash("sha256").update("commercial:" + limited.id).digest("hex");
+    let stableWindow = false;
+    // A legitimate minute rollover resets the limit. Repeat that fixture in a new window rather than failing spuriously.
+    for (let attempt = 0; attempt < 3 && !stableWindow; attempt++) {
+      await admin.query("delete from auth_attempts where key=$1", [key]);
+      const minute = (await admin.query("select date_trunc('minute',clock_timestamp()) as minute")).rows[0].minute.toISOString();
+      for (let index = 0; index < 120; index++) expect((await call("create", limited.cookie, {}, "", index % 2 ? org.toUpperCase() : org)).status).toBe(422);
+      stableWindow = minute === (await admin.query("select date_trunc('minute',clock_timestamp()) as minute")).rows[0].minute.toISOString();
+    }
+    expect(stableWindow).toBe(true);
+    expect((await call("create", limited.cookie, {}, "", org)).status).toBe(429);
+    expect((await call("create", limited.cookie, {}, "", randomUUID())).status).toBe(429);
+    expect((await admin.query("select count(*)::int n from auth_attempts")).rows[0].n).toBe(before + 1);
   });
   test("revoked assignee cannot be newly assigned, historical data survives; revoked actor loses access immediately", async () => {
     const lead = await createLead(runtime, a.id, orgA, { ...input("Historical assignee"), assignedUserId: sales.id });

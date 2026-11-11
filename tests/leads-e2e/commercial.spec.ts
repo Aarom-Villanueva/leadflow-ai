@@ -61,3 +61,25 @@ test("real commercial lifecycle persists across reloads, with accessibility on d
   await expect(page.getByRole("form", { name: "Editar etapa Seguimiento técnico" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
+
+test("moving a lead after loading a second board page preserves all loaded cards", async ({ page }) => {
+  const origin = "http://127.0.0.1:4311", suffix = randomUUID().slice(0, 8);
+  const headers = { origin };
+  const signup = await page.request.post("/api/auth/sign-up/email", { headers, data: { name: "Persona Pagination", email: `pagination-${suffix}@commercial-test.invalid`, password: "Synthetic-pagination-password-026!" } });
+  expect(signup.status()).toBe(200);
+  const response = await page.request.post("/api/organizations", { headers, data: { name: "Equipo Pagination", slug: "pagination-" + suffix, timezone: "America/Lima" } });
+  expect(response.status()).toBe(201); const { id } = await response.json();
+  const metadata = await (await page.request.get(`/api/organizations/${id}/pipeline`)).json();
+  for (let index = 0; index < 51; index++) {
+    const created = await page.request.post(`/api/organizations/${id}/leads`, { headers, data: { name: "Page " + String(index).padStart(3, "0"), stageId: metadata.stages[0].id, email: null, phoneE164: null, source: null, assignedUserId: null } });
+    expect(created.status()).toBe(201);
+  }
+  await page.goto(`/app/${id}/pipeline`);
+  await expect(page.getByText("50 prospectos cargados; hay más resultados.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cargar más", exact: true }).click();
+  await expect(page.getByText("51 prospectos cargados.", { exact: true })).toBeVisible();
+  await Promise.all([page.waitForResponse(value => value.request().method() === "PATCH" && value.url().includes("/leads/")), page.getByLabel("Mover Page 000", { exact: false }).selectOption({ label: "Propuesta" })]);
+  await expect(page.getByLabel("Mover Page 000")).toBeEnabled();
+  await expect(page.getByText("51 prospectos cargados.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Mover Page 000").locator("option:checked")).toHaveText("Propuesta");
+});

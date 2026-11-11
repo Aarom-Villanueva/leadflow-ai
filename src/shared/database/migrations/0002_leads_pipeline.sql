@@ -157,20 +157,18 @@ begin
 end; $$;
 create trigger lead_record after insert or update on leads for each row execute function lf_record_lead();
 
-create or replace function lf_create_organization(p_name text,p_slug text,p_timezone text,p_request_id uuid)
-returns uuid language plpgsql security definer set search_path=pg_catalog as $$
-declare actor text:=nullif(current_setting('app.user_id',true),''); org_id uuid:=gen_random_uuid(); pipeline_id uuid:=gen_random_uuid();
+-- An INSERT trigger also covers calls already executing the old 0001 function
+-- while waiting for this migration's table locks. Replacing that function alone
+-- would leave those in-flight calls with its old, pipeline-free body.
+create function lf_bootstrap_pipeline() returns trigger language plpgsql security definer set search_path=pg_catalog as $$
+declare pipeline_id uuid:=gen_random_uuid();
 begin
-  if actor is null then raise exception 'actor required' using errcode='42501'; end if;
-  if not exists(select 1 from pg_timezone_names where name=p_timezone) then raise exception 'invalid timezone' using errcode='22023'; end if;
-  insert into public.organizations(id,name,slug,timezone,created_by) values(org_id,p_name,p_slug,p_timezone,actor);
-  insert into public.memberships(organization_id,user_id,role) values(org_id,actor,'owner');
-  insert into public.pipelines(id,organization_id) values(pipeline_id,org_id);
-  insert into public.stages(organization_id,pipeline_id,name,position,kind) select org_id,pipeline_id,v.name,v.position,v.kind
+  insert into public.pipelines(id,organization_id) values(pipeline_id,new.id);
+  insert into public.stages(organization_id,pipeline_id,name,position,kind) select new.id,pipeline_id,v.name,v.position,v.kind
     from(values('Nuevo',1,'open'),('Calificación',2,'open'),('Propuesta',3,'open'),('Ganado',4,'won'),('Perdido',5,'lost')) v(name,position,kind);
-  insert into public.organization_audit(organization_id,actor_user_id,action,request_id) values(org_id,actor,'organization.created',p_request_id);
-  return org_id;
+  return new;
 end; $$;
-revoke all on function lf_lock_membership(uuid),lf_organization_members(uuid),lf_lock_stage(uuid,uuid),lf_lock_assignee(uuid,text),lf_validate_lead(),lf_record_lead() from public;
+create trigger organization_pipeline after insert on organizations for each row execute function lf_bootstrap_pipeline();
+revoke all on function lf_lock_membership(uuid),lf_organization_members(uuid),lf_lock_stage(uuid,uuid),lf_lock_assignee(uuid,text),lf_validate_lead(),lf_record_lead(),lf_bootstrap_pipeline() from public;
 revoke all on pipelines,stages,leads,lead_stage_events from public;
 commit;

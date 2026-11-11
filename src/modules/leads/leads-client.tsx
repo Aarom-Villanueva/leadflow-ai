@@ -36,7 +36,10 @@ export function LeadsClient({ organizationId, board = false }: { organizationId:
   }
   async function move(lead: Lead, stageId: string) {
     setBusy(true); setError("");
-    try { await commercialApi(base + `/leads/${lead.id}`, { method: "PATCH", body: JSON.stringify({ version: lead.version, stageId }) }); reload(); }
+    try {
+      const result = await commercialApi<{ lead: Lead }>(base + `/leads/${lead.id}`, { method: "PATCH", body: JSON.stringify({ version: lead.version, stageId }) });
+      setLeads(previous => previous.flatMap(value => value.id !== lead.id ? [value] : query.stageId && query.stageId !== result.lead.stageId ? [] : [result.lead]));
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo mover."); }
     finally { setBusy(false); }
   }

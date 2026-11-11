@@ -14,10 +14,12 @@ export async function leadsRequest(request: Request, org: string, action: Action
     if (mutation && !hasTrustedOrigin(request.headers, identityConfig(process.env).origin)) return safeError("FORBIDDEN_ORIGIN", 403, "Solicitud no permitida.");
     const session = await (await identityAuth()).api.getSession({ headers: request.headers });
     if (!session) return safeError("UNAUTHENTICATED", 401, "Inicia sesión para continuar.");
+    if (!z.uuid().safeParse(org).success) return safeError("NOT_FOUND", 404, "Registro no encontrado.");
     const db = await identityPool();
     let input: unknown;
     if (mutation) {
-      if (!await consumeIdentityAttempt(db, `commercial:${org.toLowerCase()}:${session.user.id}`, 120)) return safeError("RATE_LIMITED", 429, "Demasiados cambios. Espera un minuto.");
+      // One counter per authenticated identity, shared across every organization and route spelling.
+      if (!await consumeIdentityAttempt(db, `commercial:${session.user.id}`, 120)) return safeError("RATE_LIMITED", 429, "Demasiados cambios. Espera un minuto.");
       try { input = JSON.parse(await boundedBody(request, 4096)); } catch { throw new CommercialError(422, "INVALID_INPUT"); }
     }
     const actor = session.user.id;

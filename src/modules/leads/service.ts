@@ -23,7 +23,7 @@ export async function withOrganization<T>(db: Pool, userId: string, organization
 }
 async function lockedLead(client: PoolClient, org: string, id: string, version?: number): Promise<Lead> {
   if (!z.uuid().safeParse(id).success) throw notFound();
-  const lead = (await client.query<Lead>(`select ${columns} from leads where organization_id=$1 and id=$2 for update`, [org, id])).rows[0];
+  const lead = (await client.query<Lead>(`select ${columns} from leads where organization_id=$1 and id=$2${version === undefined ? "" : " for update"}`, [org, id])).rows[0];
   if (!lead) throw notFound();
   if (version !== undefined && (lead.version !== version || lead.archivedAt)) throw conflict();
   return lead;
