@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { dashboardQuery } from "../../../src/modules/analytics/contracts";
+import { spawnSync } from "node:child_process";
+import { dashboardQuery, snapshotCreate, snapshotQuery } from "../../../src/modules/analytics/contracts";
 import { NO_DATA, barPercent, cohortLabel, conversionRate, formatRate } from "../../../src/modules/analytics/metrics";
 
 describe("R08 conversion rate", () => {
@@ -48,4 +49,27 @@ describe("dashboard query contract", () => {
   test("the client cannot supply a cutoff, timezone, organization or any other field", () => {
     for (const extra of ["asOf", "from", "to", "timezone", "organizationId", "actor", "role"]) expect(dashboardQuery.safeParse({ interval: "30", [extra]: "x" }).success).toBe(false);
   });
+});
+
+describe("saved cutoff contract", () => {
+  const key = "11111111-1111-4111-8111-111111111111";
+  test("accepts only an interval and an idempotency key, normalizing the key", () => {
+    for (const interval of [30, 90, 180]) expect(snapshotCreate.parse({ interval, creationKey: key.toUpperCase() })).toEqual({ interval, creationKey: key });
+    for (const input of [{ interval: 30 }, { creationKey: key }, { interval: "30", creationKey: key }, { interval: 7, creationKey: key }, { interval: 30.5, creationKey: key }, { interval: 30, creationKey: "not-a-uuid" }, null, []]) expect(snapshotCreate.safeParse(input).success).toBe(false);
+  });
+  test.each(["asOf", "metrics", "timezone", "from", "createdBy", "createdAt", "organizationId", "role"])("the client cannot supply %s", field => {
+    expect(snapshotCreate.safeParse({ interval: 30, creationKey: key, [field]: "forged" }).success).toBe(false);
+  });
+  test("listing is bounded and strict", () => {
+    expect(snapshotQuery.parse({})).toEqual({ limit: 10 }); expect(snapshotQuery.parse({ limit: "50" })).toEqual({ limit: 50 });
+    for (const input of [{ limit: "0" }, { limit: "51" }, { limit: "1.5" }, { limit: "x" }, { cursor: "x" }, { asOf: "2020-01-01T00:00:00Z" }]) expect(snapshotQuery.safeParse(input).success).toBe(false);
+  });
+});
+
+test("a malformed analytics migration URL never prints its synthetic credential-like input", () => {
+  const marker = "SYNTHETIC-REDACTION-PROBE";
+  const result = spawnSync(process.execPath, ["scripts/analytics/migrate.mjs"], { env: { ...process.env, IDENTITY_RUNTIME_ROLE: "lf028_test_runtime", IDENTITY_MIGRATION_URL: "postgres://user:" + marker + "@[invalid" }, encoding: "utf8" });
+  expect(result.status).not.toBe(0);
+  expect(result.stdout + result.stderr).toContain("Invalid local migration target");
+  expect(result.stdout + result.stderr).not.toContain(marker);
 });

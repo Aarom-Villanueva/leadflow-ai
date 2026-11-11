@@ -92,12 +92,48 @@ test("real dashboard: empty, exact figures, interval, refresh, reload, errors, i
   await expect(page.getByRole("group", { name: "Resumen" })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.unrouteAll({ behavior: "wait" }); await page.getByRole("button", { name: "Reintentar" }).click(); await exact();
+
+  // Saving a cutoff: the server computes and stores it; the screen then shows exactly the stored figures.
+  const saved = page.getByRole("region", { name: "Cortes guardados" }), snapshotApi = "**/api/organizations/*/dashboard/snapshots";
+  await expect(saved.getByText("Aún no hay cortes guardados.")).toBeVisible();
+  await page.getByRole("button", { name: "Guardar corte", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Corte guardado: .+ Las cifras mostradas son las guardadas\.$/ })).toBeVisible(); await exact();
+  await expect(saved.getByRole("listitem")).toHaveCount(1);
+  await expect(saved.getByRole("listitem")).toContainText(/Corte .+ · últimos 90 días · America\/Lima/);
+  await expect(saved.getByRole("listitem")).toContainText("3 activos · conversión: 2 de 4 · 50 % · vencidos: 2 de 3 pendientes · guardado por Persona Dashboard");
+  // A failed save stores nothing and says so; retrying reuses the same key, so exactly one new cutoff appears.
+  let attempts = 0; const keys: string[] = [];
+  await page.route(snapshotApi, async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    keys.push(route.request().postDataJSON().creationKey);
+    if (++attempts === 1) { await route.fetch(); return route.abort(); } // the server stored it, but the response was lost
+    return route.continue();
+  });
+  await page.getByRole("button", { name: "Guardar corte", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "No pudimos guardar el corte" })).toBeVisible();
+  await page.getByRole("button", { name: "Reintentar guardado" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "No pudimos guardar el corte" })).toHaveCount(0);
+  await expect(saved.getByRole("listitem")).toHaveCount(2);
+  expect(keys).toHaveLength(2); expect(keys[0]).toBe(keys[1]);
+  await page.unrouteAll({ behavior: "wait" });
+  expect(((await (await page.request.get(`${base}/dashboard/snapshots`)).json()).snapshots as unknown[]).length).toBe(2);
+  // Saved cutoffs survive a reload and later changes to the source data.
+  await post(`/leads/${open.id}`, { version: 1, stageId: stage("Ganado") }, "patch");
+  await page.reload(); await expect(saved.getByRole("listitem")).toHaveCount(2);
+  await expect(saved.getByRole("listitem").first()).toContainText("conversión: 2 de 4 · 50 %");
+  await expect(conversion.getByText("3 de 4 · 75 %", { exact: true })).toHaveCount(2);
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport); expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
   await followups.getByText("Vencidos").waitFor(); await page.getByRole("link", { name: "Ver seguimientos" }).click(); await expect(page).toHaveURL(new RegExp(`/app/${org}/followups$`));
 
   // Another account cannot read this organization's dashboard, and its own starts empty.
   const other = await browser.newContext({ baseURL: origin }), stranger = await other.newPage();
   const ownOrg = await account(stranger, "other");
   expect((await stranger.request.get(`${base}/dashboard`)).status()).toBe(404);
+  expect((await stranger.request.get(`${base}/dashboard/snapshots`)).status()).toBe(404);
+  expect((await stranger.request.post(`${base}/dashboard/snapshots`, { headers, data: { interval: 30, creationKey: randomUUID() } })).status()).toBe(404);
   expect((await stranger.goto(`/app/${org}/dashboard`))!.status()).toBe(404);
   await stranger.goto(`/app/${ownOrg}/dashboard`);
   await expect(stranger.getByRole("region", { name: "Prospectos por etapa" }).getByText("Aún no hay prospectos activos")).toBeVisible();
