@@ -1,8 +1,20 @@
 import { expect, test } from "vitest";
-import { followupCreate, followupEdit, instant, interactionCreate, transitionInput } from "../../../src/modules/activity/contracts";
+import { followupCreate, followupEdit, followupQuery, instant, interactionCreate, transitionInput } from "../../../src/modules/activity/contracts";
 import { resolveWallTime, wallTime } from "../../../src/modules/activity/time";
 const id = "11111111-1111-4111-8111-111111111111";
 const followup = { leadId: id, creationKey: id, title: "Recordatorio", detail: null, assignedUserId: "synthetic", dueAt: "2026-11-01T10:30:00-05:00" };
+test.each(["\u0000", "\ud800", "\udfff"])("rejects NUL or a lone surrogate without silently replacing text (%j)", character => {
+  const value = "a" + character + "b";
+  expect(interactionCreate.safeParse({ leadId: id, creationKey: id, kind: "note", body: value, occurredAt: "2026-01-01T00:00:00Z" }).success).toBe(false);
+  for (const field of ["title", "detail", "assignedUserId"]) expect(followupCreate.safeParse({ ...followup, [field]: value }).success).toBe(false);
+  expect(followupQuery.safeParse({ assignedUserId: value }).success).toBe(false);
+});
+test("valid Unicode pairs and literal replacement characters remain unchanged", () => {
+  const value = "Mensaje 😀 �";
+  const input = { leadId: id, creationKey: id, kind: "note", body: value, occurredAt: "2026-01-01T00:00:00Z" };
+  expect(interactionCreate.parse(input).body).toBe(value);
+  expect(followupCreate.parse({ ...followup, title: value, detail: value }).detail).toBe(value);
+});
 test("normalizes offset instants and retains mandatory assignee and creation key", () => {
   expect(followupCreate.parse(followup).dueAt).toBe("2026-11-01T15:30:00.000Z");
   for (const input of [{ ...followup, assignedUserId: "" }, { ...followup, creationKey: undefined }, { ...followup, role: "owner" }]) expect(followupCreate.safeParse(input).success).toBe(false);

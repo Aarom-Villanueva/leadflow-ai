@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -27,12 +27,20 @@ export function FollowupsClient({ organizationId, leadId, metadata: provided, ar
   const [query, setQuery] = useState<Record<string, string>>({ status: "pending", window: "all" }), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const [filterStatus, setFilterStatus] = useState("pending");
   const [editing, setEditing] = useState<Followup>(), [formKey, setFormKey] = useState(0), [confirm, setConfirm] = useState<{ item: Followup; action: "complete" | "cancel" }>();
+  const headingRef = useRef<HTMLHeadingElement>(null), closedItemForFocus = useRef<string | null>(null);
   useEffect(() => {
     const controller = new AbortController(); const params: Record<string, string> = { ...query, ...(leadId ? { leadId } : {}) }; delete params.refresh;
     Promise.all([provided ? Promise.resolve(provided) : commercialApi<PipelineMetadata>(base + "/pipeline", { signal: controller.signal }), commercialApi<ActivityPage<Followup>>(base + "/followups?" + new URLSearchParams(params), { signal: controller.signal })])
       .then(([meta, result]) => { setMetadata(meta); setPage(result); }).catch(reason => { if (!controller.signal.aborted) setError(reason.message); });
     return () => controller.abort();
   }, [base, leadId, provided, query]);
+  useEffect(() => {
+    // Wait for the refreshed list to commit: its removed trigger cannot receive focus.
+    if (page && closedItemForFocus.current && !page.items.some(item => item.id === closedItemForFocus.current)) {
+      closedItemForFocus.current = null;
+      headingRef.current?.focus();
+    }
+  }, [page]);
   function reload() { setQuery(previous => ({ ...previous, cursor: "", refresh: String(Number(previous.refresh ?? 0) + 1) })); }
   async function save(body: unknown, id?: string) {
     setBusy(true); setError("");
@@ -42,7 +50,7 @@ export function FollowupsClient({ organizationId, leadId, metadata: provided, ar
   }
   async function close() {
     if (!confirm) return; setBusy(true); setError("");
-    try { await commercialApi(`${base}/followups/${confirm.item.id}/${confirm.action}`, { method: "POST", body: JSON.stringify({ version: confirm.item.version }) }); setConfirm(undefined); reload(); }
+    try { await commercialApi(`${base}/followups/${confirm.item.id}/${confirm.action}`, { method: "POST", body: JSON.stringify({ version: confirm.item.version }) }); closedItemForFocus.current = confirm.item.id; setConfirm(undefined); reload(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo cerrar."); }
     finally { setBusy(false); }
   }
@@ -50,7 +58,7 @@ export function FollowupsClient({ organizationId, leadId, metadata: provided, ar
     event.preventDefault(); const data = new FormData(event.currentTarget), status = String(data.get("status")); setError("");
     setQuery(Object.fromEntries(Object.entries({ status, window: status === "pending" ? String(data.get("window")) : "all", assignedUserId: String(data.get("assignedUserId") ?? "") }).filter(([, value]) => value !== "")));
   }
-  return <section className="space-y-5" aria-labelledby="followups-title"><h2 id="followups-title" className="text-2xl font-semibold">Seguimientos</h2><p className="text-sm text-[var(--text-secondary)]">Recordatorios dentro de LeadFlow. No se envían correos ni mensajes.</p>
+  return <section className="space-y-5" aria-labelledby="followups-title"><h2 id="followups-title" ref={headingRef} tabIndex={-1} className="text-2xl font-semibold">Seguimientos</h2><p className="text-sm text-[var(--text-secondary)]">Recordatorios dentro de LeadFlow. No se envían correos ni mensajes.</p>
     {error && <div role="alert"><p className="text-[var(--danger)]">{error}</p><Button onClick={() => { setError(""); reload(); }}>Recargar seguimientos</Button></div>}
     {metadata && !archived && (leadId || editing) && <Card><h3 className="mb-4 font-semibold">{editing ? "Editar seguimiento" : "Preparar próxima acción"}</h3><FollowupForm key={editing ? editing.id + ":" + editing.version : formKey} metadata={metadata} item={editing} busy={busy} save={save} />{editing && <Button className="mt-3" onClick={() => setEditing(undefined)}>Cancelar edición</Button>}</Card>}
     <Card><form onSubmit={filter} className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="text-sm">Estado del seguimiento<Select name="status" value={filterStatus} onChange={event => setFilterStatus(event.target.value)}><option value="pending">Pendientes</option><option value="completed">Completados</option><option value="canceled">Cancelados</option></Select></label><label className="text-sm">Vencimiento del seguimiento<Select key={filterStatus} name="window" defaultValue="all" disabled={filterStatus !== "pending"}><option value="all">Todos</option><option value="overdue">Vencidos</option><option value="upcoming">Próximos</option></Select></label><label className="text-sm">Filtrar responsable<Select name="assignedUserId"><option value="">Todos</option>{metadata?.members.map(member => <option key={member.userId} value={member.userId}>{member.name}</option>)}</Select></label><Button type="submit">Filtrar seguimientos</Button></form></Card>

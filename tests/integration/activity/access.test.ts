@@ -80,6 +80,29 @@ test("session, origin, bounded JSON and server-controlled identities are enforce
   expect((await call("followups", "create", { ...followup(), status: "completed" })).status).toBe(422);
   expect((await call("followups", "list", undefined, "", "invalid-org")).status).toBe(404);
 });
+test("invalid text yields 422 for creation and editing without persisting or corrupting Unicode", async () => {
+  const interaction = await createActivity(runtime, a.id, orgA, "interactions", note());
+  const record = await createActivity(runtime, a.id, orgA, "followups", followup());
+  const snapshot = async () => (await admin.query("select (select count(*) from interactions)::int interactions,(select count(*) from followups)::int followups,(select count(*) from organization_audit)::int audit")).rows[0];
+  const before = await snapshot();
+  for (const character of ["\u0000", "\ud800", "\udfff"]) {
+    const value = "a" + character + "b";
+    for (const response of [await call("interactions", "create", { ...note(), body: value }), await call("interactions", "edit", { version: 1, body: value }, interaction.id)]) {
+      expect(response.status).toBe(422); expect((await response.json()).code).toBe("INVALID_INPUT");
+    }
+    for (const field of ["title", "detail", "assignedUserId"]) {
+      expect((await call("followups", "create", { ...followup(), [field]: value })).status).toBe(422);
+      expect((await call("followups", "edit", { version: 1, [field]: value }, record.id)).status).toBe(422);
+    }
+  }
+  expect((await call("followups", "list", undefined, "", orgA, a.cookie, origin, "?assignedUserId=a%00b")).status).toBe(422);
+  expect(await snapshot()).toEqual(before);
+  expect((await admin.query("select version from interactions where id=$1", [interaction.id])).rows[0].version).toBe(1);
+  expect((await admin.query("select version from followups where id=$1", [record.id])).rows[0].version).toBe(1);
+  const response = await call("interactions", "create", { ...note(), body: "Mensaje 😀" });
+  expect(response.status).toBe(201); expect((await response.json()).item.body).toBe("Mensaje 😀");
+  expect((await call("interactions", "list")).status).toBe(200);
+});
 test("foreign organization, lead and record identifiers do not cross tenants", async () => {
   const foreign = await createActivity(runtime, b.id, orgB, "interactions", note(leadB));
   expect((await call("interactions", "edit", { version: 1, body: "Stolen" }, foreign.id)).status).toBe(404);

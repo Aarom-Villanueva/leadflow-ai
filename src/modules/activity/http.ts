@@ -32,6 +32,7 @@ export async function activityRequest(request: Request, org: string, resource: "
     if (error instanceof z.ZodError) return safeError("INVALID_INPUT", 422, "Revisa los campos, las fechas y los filtros.");
     if (error instanceof CommercialError) return safeError(error.code, error.status, error.status === 404 ? "Registro no encontrado." : error.status === 409 ? "El registro cambió o la clave ya fue usada. Recarga antes de intentar de nuevo." : "Solicitud inválida.");
     const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    if (["22021", "22P05"].includes(code)) return safeError("INVALID_INPUT", 422, "El texto contiene caracteres no válidos.");
     if (["23503", "23514", "22P02"].includes(code)) return safeError("INVALID_REFERENCE", 422, "El prospecto o el responsable no están disponibles.");
     if (["23505", "40001", "40P01"].includes(code)) return safeError("CONFLICT", 409, "El registro cambió. Recarga antes de intentar de nuevo.");
     return safeError("DEPENDENCY_UNAVAILABLE", 503, "No pudimos completar la operación. Inténtalo de nuevo.");
