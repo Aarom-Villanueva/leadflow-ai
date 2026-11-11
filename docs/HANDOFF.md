@@ -526,7 +526,8 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "playwright.activity.config.ts",
         ".github/workflows/ci.yml",
         "scripts/check-coordination.mjs",
-        "tests/coordination/release.test.mjs"
+        "tests/coordination/release.test.mjs",
+        "src/components/ui/dialog.tsx"
       ]
     }
   ]
@@ -893,10 +894,13 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 
 - 0003 aditiva; 0001/0002 intactas. Interacciones editables/versionadas, autor real y texto escapado; seguimientos con miembro vigente, vencimiento UTC y cierre terminal idempotente. Creación con clave/payload, auditoría atómica, FORCE RLS/FKs por tenant. Archivo preserva lectura y permite cerrar pendientes, sin crear/editar actividad nueva. Componentes visuales aprobados reutilizados, design intacto.
 - Node 24.22.1, PostgreSQL 18 en laboratorio nuevo work/lf027-postgres loopback 55427, sin tocar el servicio preexistente. Runners reales y roles separados; AUTH_SECRET sintético solo en memoria. Local: 118/118 unitarias; 230/230 coordinación; PostgreSQL identidad 16/16, comercial 20/20 y actividad 15/15; lint/tipos/build limpios. Se corrigió un alias SQL de la nueva prueba de contador; no se presenta aquel intento fallido como exitoso.
-- Edge: 44/44 E2E existentes, identidad 1/1, comercial 2/2, actividad 1/1 (48/48). Actividad cubre creación/edición/recarga/filtros/cierre/archivo, texto hostil como dato y axe escritorio/móvil/diálogo. Diálogos de ficha se montan solo abiertos para evitar IDs accesibles duplicados; sin cambiar el componente visual compartido.
+- Edge: 44/44 E2E existentes, identidad 1/1, comercial 2/2, actividad 1/1 (48/48). Actividad cubre creación/edición/recarga/filtros/cierre/archivo, texto hostil como dato y axe escritorio/móvil/diálogo. La revisión final comprobó pérdida de foco al desmontar el diálogo. Se corrige con useId en el componente compartido y cierre normal sin desmontaje; sin cambios visuales.
 - CI existente amplía verificación PostgreSQL 16/Chromium. El navegador comercial anterior ahora usa la base completa de LF-027; sus 20 pruebas de integración siguen en su base separada 0001/0002. Resultado del SHA remoto se observará después de publicar, sin reutilizar el CI de LF-026.
 - Sin correo, cron/notificación externa, importación, métricas reales, IA/proveedores o despliegue. Sin cambios de paquetes/BACKLOG/automatización de agentes. Próximo paso: revisión independiente de Claude al candidato exacto; no autorización de merge. Limitaciones operativas/productivas en ACTIVITY-LOCAL.md. Manifiesto final de blobs LF en commit/PR.
 
 - Alcance ampliado antes de corregir el gate: scripts/check-coordination.mjs y tests/coordination/release.test.mjs. El merge real de PR #23 usa el título feat(LF-026): ...; el reconocimiento anterior solo admitía LF-026: ... y bloqueó el verificador local, sin publicar ni saltarlo. Corrección mínima de formatos feat/fix con ID exacto y pruebas negativas; se conservan todas las comprobaciones Git/owner/rama. Revisión independiente obligatoria de este delta adicional.
 
 - Coordinación corregida: 230/230 casos; regresión ejecutada contra script anterior con fallos en los dos títulos feat/fix. Entrega final de 32 archivos; no se omitió ni relajó el gate.
+
+- Reserva ampliada antes de editar src/components/ui/dialog.tsx: corrección de IDs únicos y retorno de foco. Una sonda real comprobó BODY como foco al pulsar Volver; la regresión de navegador exige retorno al botón original tanto al pulsar Volver como Escape. Se conserva apariencia/estilos y el cierre nativo. Entrega final 33 archivos; revisión independiente también de este ajuste.
+- Ajuste de diálogo verificado: ambos retornos de foco pasan y se repitieron 44/44 E2E existentes, comercial 2/2 y actividad 1/1 en verde; lint/tipos/build limpios. El primer SHA publicado se sustituye por un commit adicional, sin reescribirlo. Se verifica CI del nuevo SHA por separado; laboratorio detenido.

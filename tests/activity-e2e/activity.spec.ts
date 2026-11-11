@@ -34,6 +34,12 @@ test("real notes and followups persist, escape hostile text, filter and close on
   await page.getByRole("button", { name: "Editar seguimiento", exact: true }).click(); await page.getByLabel("Título del seguimiento").fill("Llamada final");
   await page.getByRole("button", { name: "Guardar seguimiento", exact: true }).click(); await expect(page.getByRole("heading", { name: "Llamada final" })).toBeVisible();
   await page.getByRole("button", { name: "Completar seguimiento", exact: true }).click(); await expect(page.getByRole("dialog", { name: "¿Completar seguimiento?" })).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Volver", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Completar seguimiento", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Completar seguimiento", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Completar seguimiento", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Completar seguimiento", exact: true }).click();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Confirmar cierre" }).click(); await expect(page.getByRole("heading", { name: "Llamada final" })).toHaveCount(0);
   await page.getByRole("combobox", { name: "Estado del seguimiento", exact: true }).selectOption("completed");
