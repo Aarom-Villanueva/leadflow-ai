@@ -474,7 +474,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-026",
       "owner": "ChatGPT",
       "branch": "impl/lf-026-leads-pipeline",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -494,6 +494,39 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "vitest.leads.config.ts",
         "playwright.leads.config.ts",
         ".github/workflows/ci.yml"
+      ],
+      "completion": {
+        "head_sha": "12bb310558219e43ef55f85926f438bd2b654429",
+        "merge_sha": "5d577336998da47d5a01eede25195d53aecb3ecf"
+      }
+    },
+    {
+      "id": "LF-027",
+      "owner": "ChatGPT",
+      "branch": "impl/lf-027-interactions-followups",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-027.md",
+        "docs/ACTIVITY-LOCAL.md",
+        "src/modules/activity/**",
+        "src/modules/leads/detail-client.tsx",
+        "src/modules/leads/workspace.tsx",
+        "src/shared/database/migrations/0003_activity.sql",
+        "src/shared/database/runtime.ts",
+        "src/app/app/[[]organizationId]/**",
+        "src/app/api/organizations/[[]organizationId]/interactions/**",
+        "src/app/api/organizations/[[]organizationId]/followups/**",
+        "scripts/activity/**",
+        "tests/unit/activity/**",
+        "tests/integration/activity/**",
+        "tests/activity-e2e/**",
+        "vitest.activity.config.ts",
+        "playwright.activity.config.ts",
+        ".github/workflows/ci.yml",
+        "scripts/check-coordination.mjs",
+        "tests/coordination/release.test.mjs"
       ]
     }
   ]
@@ -850,3 +883,20 @@ Reserva ampliada antes de escribir código: se añadió `tests/unit/design/**` a
 - Ficha/historial dejan de bloquear la fila del prospecto; mutaciones conservan FOR UPDATE. Contador comercial ahora global por identidad (120/min), UUID inválido rechazado antes de crear contador; ventana fija y hardening/limpieza histórica de identidad pendientes. Mover tarjeta conserva páginas cargadas y versión confirmada.
 - Pruebas propias ampliadas: 20/20 integración comercial real, 105/105 unitarias, 227/227 coordinación, 2/2 navegador comercial (ciclo/axe más 51 tarjetas y segunda página), lint/tipos/build limpios. Incluye revocación del responsable en ambos sentidos, configuración concurrente, etapas usadas por archivados, fallos de auditoría/evento/bootstrap y los ocho SECURITY DEFINER con PUBLIC restringido. PostgreSQL 18 descartable de LF-026, sin tocar el servicio Windows. CI del SHA nuevo se verifica tras publicar; no se reutiliza el resultado remoto del candidato anterior.
 - Se mantienen misma rama y 34 rutas reservadas. Ningún cambio a 0001, paquetes, BACKLOG, design o automatización de agentes. PR #23 sigue DRAFT, sin autorización de merge; corrección requiere nueva revisión independiente. Manifiesto final en commit/PR.
+
+
+## LF-027 — interacciones y seguimientos reales
+
+Responsable ChatGPT; revisión independiente Claude pendiente. El propietario autorizó este incremento con su dale tras LF-026. Base 5d577336998da47d5a01eede25195d53aecb3ecf, rama impl/lf-027-interactions-followups. Merge PR #23 verificado mediante API y padres Git; LF-026 completed con evidencia real. Reserva registrada antes de código. Contrato y límites en docs/specs/LF-027.md. Sin correo, proveedores IA, agentes, dependencias nuevas, datos reales ni despliegue. BACKLOG permanece intacto. Manifiesto SHA-256 final en commit/PR.
+
+### LF-027 — resultados y entrega
+
+- 0003 aditiva; 0001/0002 intactas. Interacciones editables/versionadas, autor real y texto escapado; seguimientos con miembro vigente, vencimiento UTC y cierre terminal idempotente. Creación con clave/payload, auditoría atómica, FORCE RLS/FKs por tenant. Archivo preserva lectura y permite cerrar pendientes, sin crear/editar actividad nueva. Componentes visuales aprobados reutilizados, design intacto.
+- Node 24.22.1, PostgreSQL 18 en laboratorio nuevo work/lf027-postgres loopback 55427, sin tocar el servicio preexistente. Runners reales y roles separados; AUTH_SECRET sintético solo en memoria. Local: 118/118 unitarias; 230/230 coordinación; PostgreSQL identidad 16/16, comercial 20/20 y actividad 15/15; lint/tipos/build limpios. Se corrigió un alias SQL de la nueva prueba de contador; no se presenta aquel intento fallido como exitoso.
+- Edge: 44/44 E2E existentes, identidad 1/1, comercial 2/2, actividad 1/1 (48/48). Actividad cubre creación/edición/recarga/filtros/cierre/archivo, texto hostil como dato y axe escritorio/móvil/diálogo. Diálogos de ficha se montan solo abiertos para evitar IDs accesibles duplicados; sin cambiar el componente visual compartido.
+- CI existente amplía verificación PostgreSQL 16/Chromium. El navegador comercial anterior ahora usa la base completa de LF-027; sus 20 pruebas de integración siguen en su base separada 0001/0002. Resultado del SHA remoto se observará después de publicar, sin reutilizar el CI de LF-026.
+- Sin correo, cron/notificación externa, importación, métricas reales, IA/proveedores o despliegue. Sin cambios de paquetes/BACKLOG/automatización de agentes. Próximo paso: revisión independiente de Claude al candidato exacto; no autorización de merge. Limitaciones operativas/productivas en ACTIVITY-LOCAL.md. Manifiesto final de blobs LF en commit/PR.
+
+- Alcance ampliado antes de corregir el gate: scripts/check-coordination.mjs y tests/coordination/release.test.mjs. El merge real de PR #23 usa el título feat(LF-026): ...; el reconocimiento anterior solo admitía LF-026: ... y bloqueó el verificador local, sin publicar ni saltarlo. Corrección mínima de formatos feat/fix con ID exacto y pruebas negativas; se conservan todas las comprobaciones Git/owner/rama. Revisión independiente obligatoria de este delta adicional.
+
+- Coordinación corregida: 230/230 casos; regresión ejecutada contra script anterior con fallos en los dos títulos feat/fix. Entrega final de 32 archivos; no se omitió ni relajó el gate.

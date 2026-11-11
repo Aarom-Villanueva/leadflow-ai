@@ -56,6 +56,18 @@ test('GitHub default merge message releases the exact reserved task with real Gi
    await t.test('accepts the default subject plus exact task title',()=>{
      assert.deepEqual(verify(),['LF-001']);
    });
+   for (const type of ['feat','fix']) await t.test(`accepts the exact ${type}(task) title without changing Git proof`,()=>{
+     changeMessage(subject+`\n\n${type}(LF-001): foundation`);
+     assert.deepEqual(verify(),['LF-001']);
+     assert.deepEqual(verify({current:[task('completed',{head_sha:before,merge_sha:merge})]}),[]);
+     assert.deepEqual(verify({base:head}),[]);
+   });
+   await t.test('rejects near-miss conventional task titles and later mentions',()=>{
+     for(const title of ['feat(LF-001a): other','fix(LF-001-extra): other','feat(ui): LF-001: other','feat(LF-001):missing space','fix(LF-001)!: breaking','docs(LF-001): unsupported','Other title\n\nfeat(LF-001): later']) {
+       changeMessage(subject+'\n\n'+title);assert.deepEqual(verify(),[]);
+     }
+     changeMessage(validMessage);
+   });
    await t.test('still rejects a false merged head',()=>{
      assert.deepEqual(verify({current:[task('completed',{head_sha:before,merge_sha:merge})]}),[]);
    });

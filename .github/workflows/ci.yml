@@ -81,6 +81,10 @@ jobs:
           LEADS_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf026_leads_test
         run: npx --no-install vitest run --config vitest.leads.config.ts
       - run: npx --no-install playwright install --with-deps chromium
+      - name: Activity integration (isolated PostgreSQL database)
+        env:
+          ACTIVITY_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf027_activity_test
+        run: npx --no-install vitest run --config vitest.activity.config.ts
       - run: npm run test:e2e
       - name: Real identity browser flow (ephemeral secret)
         env:
@@ -93,10 +97,19 @@ jobs:
           npx --no-install playwright test --config playwright.identity.config.ts
       - name: Real leads and pipeline browser flow (ephemeral secret)
         env:
-          DATABASE_URL: postgres://lf026_test_runtime@127.0.0.1:5432/lf026_leads_test
+          DATABASE_URL: postgres://lf027_test_runtime@127.0.0.1:5432/lf027_activity_test
           APP_ORIGIN: http://127.0.0.1:4311
         shell: bash
         run: |
           export AUTH_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
           echo "::add-mask::$AUTH_SECRET"
           npx --no-install playwright test --config playwright.leads.config.ts
+      - name: Real activity browser flow (ephemeral secret)
+        env:
+          DATABASE_URL: postgres://lf027_test_runtime@127.0.0.1:5432/lf027_activity_test
+          APP_ORIGIN: http://127.0.0.1:4312
+        shell: bash
+        run: |
+          export AUTH_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
+          echo "::add-mask::$AUTH_SECRET"
+          npx --no-install playwright test --config playwright.activity.config.ts
