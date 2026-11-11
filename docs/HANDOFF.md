@@ -553,7 +553,10 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "tests/analytics-e2e/**",
         "vitest.analytics.config.ts",
         "playwright.analytics.config.ts",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "src/shared/database/migrations/0004_analytics.sql",
+        "scripts/analytics/**",
+        "src/shared/database/runtime.ts"
       ]
     }
   ]
@@ -953,3 +956,10 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Fallos intermedios solo en pruebas propias (dos expectativas y tres ajustes del recorrido de navegador), corregidos y detallados en docs/specs/LF-028.md.
 - Decisiones explícitas que requieren confirmación (spec LF-028): archivados incluidos en la conversión, «llegó a ganado» por eventos, seguimientos de archivados contados, días de calendario locales, corte no persistido, intervalo sin altas que no oculta el resto y lectura para los tres roles.
 - Pendiente: CI del SHA publicado y revisión independiente de Codex. Sin autoaprobación, merge ni auto-merge. Manifiesto SHA-256 de los blobs finales en el commit y en el PR.
+
+### LF-028 — ampliación tras la revisión independiente de 1739eaf
+
+- La revisión independiente del candidato `1739eaf2b84a60ffc6745c14bac65128cf3ac51c` encontró tres defectos. El propietario confirmó la conversión histórica por eventos (archivados incluidos, cada prospecto una vez) y pidió mantener el corte persistido. Se corrigen en el mismo PR #25, que sigue en DRAFT.
+- Reserva ampliada antes de editar: `src/shared/database/migrations/0004_analytics.sql`, `scripts/analytics/**` y `src/shared/database/runtime.ts`, añadidos al registro JSON y a la fila LF-028 del roadmap. Contrato v2 y migración definidos en docs/specs/LF-028.md antes del código.
+- Alcance de la ampliación: (1) cada evento de etapa guarda el tipo de su etapa destino en el momento del evento, de modo que reconfigurar una etapa no reinterpreta la historia; (2) el inicio del intervalo es el primer instante real del día local, también con medianoches repetidas o inexistentes; (3) guardado real de cortes mediante una operación explícita, atómica e idempotente, con GET sin efectos secundarios.
+- 0004 es aditiva sobre 0001–0003, con runner local explícito, checksum y rollback como las anteriores. Sin dependencias nuevas, servicios externos, credenciales productivas, despliegue ni agentes; BACKLOG y AUTOPILOT intactos.
