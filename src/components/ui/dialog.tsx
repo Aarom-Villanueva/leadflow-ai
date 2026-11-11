@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/button";
 
 /**
@@ -21,6 +21,7 @@ export function Dialog({
   children: ReactNode;
   footer: ReactNode;
 }) {
+  const titleId = useId();
   const ref = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<Element | null>(null);
 
@@ -38,7 +39,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--border-strong)] bg-[var(--surface-raised)] p-6 text-[var(--text-primary)] backdrop:bg-black/60"
       onClose={() => {
         onClose();
@@ -50,7 +51,7 @@ export function Dialog({
       }}
     >
       <div className="flex items-start justify-between gap-3">
-        <h2 id="dialog-title" className="text-[1.125rem] font-semibold">
+        <h2 id={titleId} className="text-[1.125rem] font-semibold">
           {title}
         </h2>
         <IconButton label="Cerrar" onClick={() => ref.current?.close()}>

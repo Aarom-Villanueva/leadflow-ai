@@ -66,7 +66,9 @@ export function verifiedMergeReleases({ previous, current, base, git }) {
         const message = git('show', '-s', '--format=%B', merge_sha).trim();
         const [messageSubject, ...body] = message.split(/\r?\n/);
         const title = body.find(line => line.trim().length > 0);
-        if (messageSubject !== subject || !title?.startsWith(`${old.id}: `)) continue;
+        const exactTaskTitle = title?.startsWith(`${old.id}: `)
+          || ['feat', 'fix'].some(type => title?.startsWith(`${type}(${old.id}): `));
+        if (messageSubject !== subject || !exactTaskTitle) continue;
       }
       result.push(old.id);
     } catch { /* Missing proof fails closed. */ }
