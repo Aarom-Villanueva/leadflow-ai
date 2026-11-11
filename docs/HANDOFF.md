@@ -440,7 +440,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-025",
       "owner": "ChatGPT",
       "branch": "impl/lf-025-identity-organizations",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -464,6 +464,36 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "playwright.identity.config.ts",
         "tests/identity-e2e/**",
         "src/app/page.tsx"
+      ],
+      "completion": {
+        "head_sha": "22287cd80a763ec295f516fcf87ab52e5d39d4e1",
+        "merge_sha": "676946c93c2582dd6a033debf253bf1eb576c6e4"
+      }
+    },
+    {
+      "id": "LF-026",
+      "owner": "ChatGPT",
+      "branch": "impl/lf-026-leads-pipeline",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-026.md",
+        "docs/LEADS-LOCAL.md",
+        "src/modules/leads/**",
+        "src/shared/database/migrations/0002_leads_pipeline.sql",
+        "src/shared/database/runtime.ts",
+        "src/app/app/[[]organizationId]/**",
+        "src/app/api/organizations/[[]organizationId]/leads/**",
+        "src/app/api/organizations/[[]organizationId]/pipeline/**",
+        "src/app/api/organizations/[[]organizationId]/stages/**",
+        "scripts/leads/**",
+        "tests/unit/leads/**",
+        "tests/integration/leads/**",
+        "tests/leads-e2e/**",
+        "vitest.leads.config.ts",
+        "playwright.leads.config.ts",
+        ".github/workflows/ci.yml"
       ]
     }
   ]
@@ -796,3 +826,20 @@ Reserva ampliada antes de escribir código: se añadió `tests/unit/design/**` a
 - Recorrido de navegador real (Edge instalado): 1/1, registro desde portada, organización, recarga, cookie HttpOnly/SameSite, acceso anónimo, logout, login. Suite visual existente: 44/44; tras añadir únicamente enlace de login en portada, smoke 6/6. Lint, tipos y build limpios.
 - El formulario de acceso real está en /login y /register. /design sigue siendo el prototipo sintético. Recuperación/verificación/invitaciones/gestión de miembros y backend comercial quedan expresamente pendientes. Sin despliegue, proveedores IA ni correo real.
 - Candidato, manifiesto SHA-256 y CI se registran en el commit/PR. Revisión independiente pendiente; no hay autorización de merge.
+
+
+## LF-026 — prospectos y pipeline persistentes
+
+- Responsable: ChatGPT. Revisor independiente: Claude, pendiente. Rama `impl/lf-026-leads-pipeline`, base `676946c93c2582dd6a033debf253bf1eb576c6e4`. El propietario autorizó continuar con prospectos/pipeline tras integrar LF-025.
+- LF-025 completed con head/merge reales. La prosa antigua que mencionaba tests/e2e/identity.spec.ts queda aclarada: el recorrido real está en tests/identity-e2e/access.spec.ts; el registro JSON ya era correcto.
+- Reserva registrada antes de código: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-026.md`, `docs/LEADS-LOCAL.md`, `src/modules/leads/**`, `src/shared/database/migrations/0002_leads_pipeline.sql`, `src/shared/database/runtime.ts`, `src/app/app/[[]organizationId]/**`, `src/app/api/organizations/[[]organizationId]/leads/**`, `src/app/api/organizations/[[]organizationId]/pipeline/**`, `src/app/api/organizations/[[]organizationId]/stages/**`, `scripts/leads/**`, `tests/unit/leads/**`, `tests/integration/leads/**`, `tests/leads-e2e/**`, `vitest.leads.config.ts`, `playwright.leads.config.ts`, `.github/workflows/ci.yml`.
+- Alcance: datos comerciales propios por organización, asignación a miembro vigente, edición/versiones, archivo, pipeline configurable owner/admin, eventos y auditoría atómicos. Contrato versionado en spec LF-026 y modelo ya propuesto en DATA_MODEL/R03/R04; revisión independiente antes de integrar el esquema nuevo.
+- Pruebas en clúster descartable propio y PostgreSQL 16 de CI; no tocar el servicio existente ni datos reales. Sin nuevas dependencias, proveedores, secretos productivos o despliegue. BACKLOG intacto y AUTOPILOT en pausa. Manifiesto y resultados en commit/PR.
+
+### LF-026 — candidato local verificado
+
+- Node 24.22.1, paquetes del lockfile vigente, sin cambios de package.json/package-lock. PostgreSQL 18 en clúster nuevo exclusivo work/lf026-postgres, loopback 55426, sin modificar el servicio Windows preexistente. Base lf026_leads_test, provisionador/runtime separados; la regresión de identidad usa otra base lf025_identity_test dentro de este mismo clúster descartable.
+- Lint sin advertencias, tipos y build limpios; 105/105 unitarias (12 nuevas), 227/227 coordinación, 12/12 integración comercial real y 16/16 integración de identidad anterior. Migración real con fallo DDL parcial y rollback, repetición/checksum, backfill y bootstrap, límites de tenant/permisos, revocación concurrente, versiones concurrentes, historial/archivo, auditoría fallida y cursores literales ejecutados, no simulados.
+- Navegador Edge instalado: 44/44 E2E existentes; 1/1 identidad real y 1/1 ciclo comercial real. Este último verifica recargas, persistencia, archivo/filtro, nueva etapa y axe sin violaciones en las pantallas examinadas, escritorio y móvil. Se corrigió un selector de la prueba; no se atribuye accesibilidad manual completa a axe.
+- Patrones `[[]organizationId]` del registro escapan el corchete literal de Next para matchesGlob; no amplían el alcance ni cambian rutas. Verificadores contra el commit real y CI del SHA final se reportarán en el PR. La verificación de CI incluye integración comercial y su recorrido real sobre PostgreSQL 16 efímero; no agrega agentes ni servicios externos.
+- No se conectan seguimiento/interacciones/importación/dashboard/IA/correo/miembros. Archivo sin restauración; cursores sin instantánea durante cambios; COMMIT con respuesta perdida no ofrece exactamente una vez. Ver docs/LEADS-LOCAL.md. No hay autorización de merge ni despliegue. Revisión independiente de Claude pendiente.
