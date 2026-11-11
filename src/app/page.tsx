@@ -14,7 +14,7 @@ export default function Home() {
         <span aria-hidden="true" className="flex size-9 items-center justify-center rounded-xl bg-lime-300 text-lg font-bold text-slate-950">L</span>
         <span className="text-xl font-semibold tracking-tight">LeadFlow <span className="text-lime-300">AI</span></span>
       </a>
-      <nav aria-label="Navegación principal"><a href="#vision" className="rounded text-sm text-slate-200 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-300">Conoce la visión <span aria-hidden="true">↗</span></a></nav>
+      <nav aria-label="Navegación principal" className="flex flex-wrap items-center gap-6"><a href="#vision" className="rounded text-sm text-slate-200 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-300">Conoce la visión <span aria-hidden="true">↗</span></a><a href="/login" className="rounded text-sm font-medium text-lime-300 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-300">Iniciar sesión</a></nav>
     </header>
     <main id="main" tabIndex={-1}>
       <section aria-labelledby="hero-title" className="mx-auto grid max-w-6xl gap-14 px-6 pb-20 pt-16 sm:px-10 sm:pt-24 lg:grid-cols-[1.3fr_1fr] lg:items-center">

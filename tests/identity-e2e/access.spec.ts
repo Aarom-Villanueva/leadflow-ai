@@ -1,0 +1,38 @@
+import { test, expect } from "@playwright/test";
+
+test("real registration, organization creation, session persistence, logout and login", async ({ page, browser }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Iniciar sesión", exact: true }).click();
+  await page.getByRole("link", { name: "Crear una cuenta", exact: true }).click();
+  await page.getByLabel("Nombre completo").fill("Persona de prueba");
+  await page.getByLabel("Correo").fill("browser@identity-test.invalid");
+  await page.getByLabel("Contraseña").fill("Synthetic-browser-password-025!");
+  await page.getByRole("button", { name: "Crear cuenta", exact: true }).click();
+  await expect(page).toHaveURL(/\/organizations$/);
+  await page.getByRole("link", { name: "Crear organización", exact: true }).click();
+  await page.getByLabel("Nombre de la organización").fill("Equipo Browser");
+  await page.getByLabel("Identificador").fill("browser-team");
+  await page.getByRole("button", { name: "Crear organización", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Tu espacio de trabajo" })).toBeVisible();
+  await expect(page.getByText("Propietario", { exact: true })).toBeVisible();
+  const workspace = page.url();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Tu espacio de trabajo" })).toBeVisible();
+  const cookies = await page.context().cookies();
+  expect(cookies.some(c => c.name.includes("session_token") && c.httpOnly && c.sameSite === "Lax")).toBe(true);
+  const empty = await browser.newContext();
+  const anonymous = await empty.newPage();
+  await anonymous.goto(workspace);
+  await expect(anonymous).toHaveURL(/\/login$/);
+  await empty.close();
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await page.goto(workspace);
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByLabel("Correo").fill("browser@identity-test.invalid");
+  await page.getByLabel("Contraseña").fill("Synthetic-browser-password-025!");
+  await page.getByRole("button", { name: "Iniciar sesión", exact: true }).click();
+  await expect(page).toHaveURL(/\/organizations$/);
+  await page.getByRole("link", { name: /Equipo Browser/ }).click();
+  await expect(page.getByRole("heading", { name: "Tu espacio de trabajo" })).toBeVisible();
+});

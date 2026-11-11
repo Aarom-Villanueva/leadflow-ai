@@ -421,7 +421,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-003",
       "owner": "Claude",
       "branch": "design/lf-003-ui-ux-proposal",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -430,6 +430,40 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "src/components/ui/**",
         "tests/e2e/design-preview.spec.ts",
         "tests/unit/design/**"
+      ],
+      "completion": {
+        "head_sha": "4f5e6ad6e5b68cb3dd3c25f00bd7eb1749d52cb8",
+        "merge_sha": "796aa5930a93075bca6ee837e4e8b6b72d243711"
+      }
+    },
+    {
+      "id": "LF-025",
+      "owner": "ChatGPT",
+      "branch": "impl/lf-025-identity-organizations",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/DECISIONS.md",
+        "docs/specs/LF-025.md",
+        "docs/IDENTITY-LOCAL.md",
+        ".env.example",
+        "src/modules/identity/**",
+        "src/modules/organizations/**",
+        "src/shared/database/**",
+        "src/app/(identity)/**",
+        "src/app/app/**",
+        "src/app/api/auth/**",
+        "src/app/api/organizations/**",
+        "scripts/identity/**",
+        "tests/unit/identity/**",
+        "tests/integration/identity/**",
+        "vitest.identity.config.ts",
+        ".github/workflows/ci.yml",
+        "vitest.config.ts",
+        "playwright.identity.config.ts",
+        "tests/identity-e2e/**",
+        "src/app/page.tsx"
       ]
     }
   ]
@@ -743,3 +777,22 @@ El propietario reportó, sobre el candidato `9a146f7426e8cd7075db102b15e8ccb1cdf
 Reserva ampliada antes de escribir código: se añadió `tests/unit/design/**` a los archivos de esta tarea (abajo) y a "Archivos previstos" de LF-003 en `docs/ROADMAP.md`. No se amplió ningún otro alcance; no se tocaron reglas de R08 ni ninguna otra pantalla.
 
 **Resultados reales**: `npx vitest run tests/unit/` → **88/88** (6 nuevas en `tests/unit/design/cohort.test.ts`, que ejercitan la función real `monthCohort` exportada de `src/app/design/app/dashboard/_lib/cohort.ts`, con el instante exacto del reporte y un segundo instante cercano a otro cambio de mes, variando `process.env.TZ` para probar independencia real de la zona ambiental — confirmado también que la regresión falla de verdad contra la implementación anterior sin `timeZone`, 4/6 casos). `npm run lint`/`typecheck`/`build` limpios. `node --test tests/coordination/*.test.mjs` → **227/227**, sin cambios. `npx playwright test` → **44/44**, sin cambios. Ambos verificadores de coordinación (`check-coordination.mjs`, `check-done-proof.mjs`) ejecutados sobre el SHA final.
+
+
+## LF-025 — identidad y organizaciones funcionales
+
+- Responsable: ChatGPT. Revisión independiente de Claude pendiente. Rama `impl/lf-025-identity-organizations`; base `796aa5930a93075bca6ee837e4e8b6b72d243711`.
+- El propietario autorizó conectar registro/login/organizaciones/permisos reales después de aprobar e integrar LF-003. Desarrollo local, sin despliegue ni proveedores externos. Se adopta la recomendación ya propuesta de D-002 y correo sin proveedor externo; no se afirma completado el correo ni aprobado el uso con datos reales.
+- Reserva registrada antes de código: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/DECISIONS.md`, `docs/specs/LF-025.md`, `docs/IDENTITY-LOCAL.md`, `.env.example`, `src/modules/identity/**`, `src/modules/organizations/**`, `src/shared/database/**`, `src/app/(identity)/**`, `src/app/app/**`, `src/app/api/auth/**`, `src/app/api/organizations/**`, `scripts/identity/**`, `tests/unit/identity/**`, `tests/integration/identity/**`, `tests/e2e/identity.spec.ts`, `vitest.identity.config.ts`, `.github/workflows/ci.yml`.
+- LF-003 completed con la evidencia Git del merge PR #20. BACKLOG intacto, ejecución automática deshabilitada. El trabajo es manual bajo la autorización del propietario.
+- El servidor PostgreSQL 18 preexistente en Windows no se modifica. Se preparan pruebas con clúster descartable separado y PostgreSQL 16 en el job de verificación existente, sin secretos productivos.
+- Manifiesto, pruebas y limitaciones se registrarán en el commit/PR; no hay autorización de merge.
+
+### LF-025 — resultados locales y límites
+
+- Dependencias instaladas desde el lockfile existente con Node 24.22.1 y npm 11.9.0; sin cambios de versiones ni paquetes.
+- PostgreSQL 18 instalado se utilizó en un clúster nuevo bajo work/lf025-postgres, loopback puerto 55425, base exclusiva lf025_identity_test y roles separados. No se modificó el servicio PostgreSQL 18 preexistente. El clúster de prueba se detiene tras validar. CI usará PostgreSQL 16 efímero.
+- 93/93 unitarias; 227/227 coordinación; 16/16 integración PostgreSQL/Better Auth reales. La integración invoca el runner de migración real y cubre RLS/contexto ausente/COMMIT/ROLLBACK, identidad y sesiones, origen, límite persistido entre pools, membresía revocada, sales, actor/rol falsificados, slug duplicado, auditoría fallida con rollback total y cuerpo demasiado grande.
+- Recorrido de navegador real (Edge instalado): 1/1, registro desde portada, organización, recarga, cookie HttpOnly/SameSite, acceso anónimo, logout, login. Suite visual existente: 44/44; tras añadir únicamente enlace de login en portada, smoke 6/6. Lint, tipos y build limpios.
+- El formulario de acceso real está en /login y /register. /design sigue siendo el prototipo sintético. Recuperación/verificación/invitaciones/gestión de miembros y backend comercial quedan expresamente pendientes. Sin despliegue, proveedores IA ni correo real.
+- Candidato, manifiesto SHA-256 y CI se registran en el commit/PR. Revisión independiente pendiente; no hay autorización de merge.
