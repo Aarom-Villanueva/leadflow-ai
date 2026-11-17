@@ -101,7 +101,7 @@ test("real dashboard: empty, exact figures, interval, refresh, reload, errors, i
   await expect(saved.getByRole("listitem")).toHaveCount(1);
   await expect(saved.getByRole("listitem")).toContainText(/Corte .+ · últimos 90 días · America\/Lima/);
   await expect(saved.getByRole("listitem")).toContainText("3 activos · conversión: 2 de 4 · 50 % · vencidos: 2 de 3 pendientes · guardado por Persona Dashboard");
-  // A failed save stores nothing and says so; retrying reuses the same key, so exactly one new cutoff appears.
+  // A lost response is an unknown outcome, never «nothing was saved»; retrying reuses the same key, so exactly one new cutoff appears.
   let attempts = 0; const keys: string[] = [];
   await page.route(snapshotApi, async route => {
     if (route.request().method() !== "POST") return route.continue();
@@ -110,9 +110,10 @@ test("real dashboard: empty, exact figures, interval, refresh, reload, errors, i
     return route.continue();
   });
   await page.getByRole("button", { name: "Guardar corte", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "No pudimos guardar el corte" })).toBeVisible();
-  await page.getByRole("button", { name: "Reintentar guardado" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "No pudimos guardar el corte" })).toHaveCount(0);
+  await expect(page.getByText("No sabemos si el corte se guardó")).toBeVisible();
+  await expect(page.getByText("No se guardó ningún corte nuevo")).toHaveCount(0);
+  await page.getByRole("button", { name: "Reintentar guardado de los últimos 90 días" }).click();
+  await expect(page.getByText("No sabemos si el corte se guardó")).toHaveCount(0);
   await expect(saved.getByRole("listitem")).toHaveCount(2);
   expect(keys).toHaveLength(2); expect(keys[0]).toBe(keys[1]);
   await page.unrouteAll({ behavior: "wait" });

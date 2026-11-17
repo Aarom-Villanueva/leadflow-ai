@@ -121,6 +121,7 @@ jobs:
         env:
           DATABASE_URL: postgres://lf028_test_runtime@127.0.0.1:5432/lf028_analytics_test
           APP_ORIGIN: http://127.0.0.1:4313
+          ANALYTICS_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf028_analytics_test
         shell: bash
         run: |
           export AUTH_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
