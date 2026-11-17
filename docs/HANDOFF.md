@@ -1004,3 +1004,9 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Reserva y spec registradas antes de cambiar dependencias: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-029.md`, `package.json`, `package-lock.json`. Manifiesto SHA-256 final en el mensaje del commit de entrega, sin hash autorreferente.
 - Alcance: Next.js y su configuración ESLint de 16.4.4 a 16.4.6, patch estable de la misma serie; regenerar lock y validar instalación congelada, ausencia del advisory de Next, lint/tipos/build, pruebas de producto y CI real. Contratos, apariencia y migraciones intactos.
 - Estado inicial: preparación registrada; implementación, pruebas y CI pendientes. No se presenta ninguna comprobación futura como ejecutada. Sin agentes, IA conectada, proveedores, credenciales productivas, gastos o despliegue. BACKLOG y AUTOPILOT intactos.
+
+### LF-029 — candidato local
+
+- Implementado el patch 16.4.6 de Next.js y su configuración ESLint, con lock reproducible. Solo cinco archivos reservados, sin cambios de aplicación. npm audit deja de identificar GHSA-mfr8-8qww-v76h; 11 avisos moderados ajenos permanecen, sin reparación indiscriminada.
+- Lint/tipos/build limpios (build con caché nueva, sin aviso de seguridad); 174 unitarias, 230 coordinación, integraciones PostgreSQL 18 identidad/comercial/actividad/analítica 16/20/16/16 y navegador Edge identidad/comercial/actividad/dashboard 1/2/1/13, todos aprobados. E2E base 44/44 en la repetición completa con output separado; resultados e incidencias transparentes en spec LF-029. Ambos clústeres propios detenidos.
+- CI del candidato se observa tras publicar y se informa en el PR sobre el SHA exacto. No hay autorización de merge. Revisión independiente Claude pendiente. BACKLOG, workflows y AUTOPILOT intactos.
