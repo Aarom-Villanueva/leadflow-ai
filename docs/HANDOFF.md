@@ -567,13 +567,42 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-029",
       "owner": "ChatGPT",
       "branch": "security/lf-029-next-security-update",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-029.md",
         "package.json",
         "package-lock.json"
+      ],
+      "completion": {
+        "head_sha": "9e0e5815e7924b243bec20499a5b5d358d9d4916",
+        "merge_sha": "c93fcc1468ce554bba20fe787cad6739e09b0c28"
+      }
+    },
+    {
+      "id": "LF-030",
+      "owner": "ChatGPT",
+      "branch": "impl/lf-030-organization-members",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-030.md",
+        "docs/ORGANIZATION-ADMIN-LOCAL.md",
+        "src/shared/database/migrations/0005_organization_admin.sql",
+        "scripts/organizations/**",
+        "src/modules/organizations/admin-*",
+        "src/app/app/[[]organizationId]/administration/page.tsx",
+        "src/app/api/organizations/[[]organizationId]/administration/**",
+        "src/app/api/organizations/[[]organizationId]/members/**",
+        "src/app/api/organizations/[[]organizationId]/ownership/**",
+        "tests/unit/organizations/**",
+        "tests/integration/organizations/**",
+        "tests/organizations-e2e/**",
+        "vitest.organizations.config.ts",
+        "playwright.organizations.config.ts",
+        ".github/workflows/ci.yml"
       ]
     }
   ]
@@ -1010,3 +1039,31 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Implementado el patch 16.4.6 de Next.js y su configuración ESLint, con lock reproducible. Solo cinco archivos reservados, sin cambios de aplicación. npm audit deja de identificar GHSA-mfr8-8qww-v76h; 11 avisos moderados ajenos permanecen, sin reparación indiscriminada.
 - Lint/tipos/build limpios (build con caché nueva, sin aviso de seguridad); 174 unitarias, 230 coordinación, integraciones PostgreSQL 18 identidad/comercial/actividad/analítica 16/20/16/16 y navegador Edge identidad/comercial/actividad/dashboard 1/2/1/13, todos aprobados. E2E base 44/44 en la repetición completa con output separado; resultados e incidencias transparentes en spec LF-029. Ambos clústeres propios detenidos.
 - CI del candidato se observa tras publicar y se informa en el PR sobre el SHA exacto. No hay autorización de merge. Revisión independiente Claude pendiente. BACKLOG, workflows y AUTOPILOT intactos.
+
+## LF-030 — administración de organizaciones y miembros
+
+- El propietario autorizó desarrollar el siguiente bloque de administración tras el merge de PR #26. Responsable ChatGPT; revisión independiente Claude pendiente. Rama `impl/lf-030-organization-members`, base `c93fcc1468ce554bba20fe787cad6739e09b0c28`. Sin autorización de merge ni despliegue.
+- LF-029 completed con head `9e0e5815e7924b243bec20499a5b5d358d9d4916` y merge real `c93fcc1468ce554bba20fe787cad6739e09b0c28`, padres `1160eea6afc0a82ce17c279cb1ee18459101431a` y el head auditado. Revisión independiente de Sonnet comunicada por el propietario en este chat, sin revisión/autoaprobación publicada en GitHub; ambos checks confirmados antes del merge.
+- Aclaración histórica: la revisión independiente de LF-028/head `589f6d284aa3386b6b558ef52cdaccddb1cd6d26` fue ejecutada y comunicada al propietario por Codex en este chat antes de su autorización de merge; no equivale a una revisión formal publicada en GitHub. No se inventa un enlace de revisión pública.
+- Reserva registrada antes de código: rutas del registro JSON. Contrato v1 en docs/specs/LF-030.md. Alcance: perfil de organización, equipo existente, cambio de rol/revocación/restauración, transferencia de propiedad y auditoría, con controles de concurrencia e idempotencia. No se añaden cuentas sin consentimiento, invitaciones ni correo.
+- Estado: propuesta de contratos/esquema en preparación. La regla de AGENTS.md requiere revisión y aprobación antes de implementarlos; no se afirma que este paso esté satisfecho. No se han ejecutado migraciones ni escrito implementación. BACKLOG, agentes, IA, dependencias y despliegue intactos.
+
+### LF-030 — autorización de implementación
+
+- El propietario autorizó expresamente la excepción puntual de secuencia: «Sí, implementar ahora y revisar antes de fusionar», después de publicar el contrato completo del PR #27. Se implementa en esta rama en borrador; Sonnet revisará el PR completo antes de cualquier autorización de merge. No se altera AGENTS.md ni la exigencia de revisión independiente/CI/merge autorizado.
+- Se conserva el contrato y la reserva; las migraciones solo se ensayan en laboratorios propios descartables. Sin invitaciones, correo, secretos productivos, servicios, gastos, despliegue o agentes.
+
+### LF-030 — candidato de implementación para revisión
+
+- Contrato previo publicado en PR #27, excepción de secuencia autorizada por el propietario antes de código. Implementación en la misma rama: perfil y equipo existente, revocar/restaurar, transferencia, auditoría, permisos, versiones y recibos idempotentes; migración 0005 explícita en laboratorio. No se implementan invitaciones/correo ni alta de personas.
+- Resultados locales reales: lint/tipos limpios; 186 unitarias y 230 coordinación; integraciones identidad/comercial/actividad/analítica 16/20/16/16; integración administrativa 21; navegador anterior 44+1+2+1+13 y administrativo 7, todos aprobados. PostgreSQL 18 descartable propio/Edge/Node 24.22.1/npm 11.9.0. El build local usa la variante `--webpack` por fallo de junction de Turbopack en Windows; CI conserva el build estándar. Incidencias, cobertura y límites en LF-030.md; no se presentan las variantes locales como equivalentes a CI.
+- Reserva sigue active hasta un merge autorizado futuro. Manifiesto de 22 blobs en el mensaje del commit de entrega; sin hash autorreferente. CI del SHA publicado pendiente de observación en este punto; se reportará su estado real en PR #27. Revisión independiente Sonnet y autorización separada de merge pendientes. Sin autoaprobación ni auto-merge.
+- BACKLOG/`execution_enabled=false`, IA, AUTOPILOT, dependencias y despliegue intactos. Únicos cambios de workflow: ejecutar la integración y el navegador de este módulo dentro del job de verificación existente, sin ejecutar agentes.
+
+### LF-030 — correcciones tras la revisión independiente de 863b87b7
+
+- La revisión independiente del candidato `863b87b7dfd33b18b97067b2b24134276f564e3c` no halló bloqueantes y dejó cuatro observaciones. El propietario pidió resolverlas en el mismo incremento: (1) intento incierto: un 409 `VERSION_CONFLICT` al reintentar con la misma clave lo resuelve y «Recargar datos» permite continuar; ningún otro rechazo lo resuelve y no se habilita un segundo cambio mientras sea incierto; (2) la auditoría lista solo eventos de administración (lista explícita; los demás eventos almacenados no se tocan); (3) el runner de 0005 acota las esperas con `lock_timeout` (5 s) y aborta, sin revocar nada, si el runtime tiene privilegios efectivos de escritura sobre organizaciones, membresías o auditoría, propios, heredados, de PUBLIC o por columna; (4) una sola regla de nombre en aplicación y SQL.
+- Contrato v1.1 escrito en docs/specs/LF-030.md antes del código. Misma reserva LF-030; todos los archivos tocados estaban reservados y se añadieron tres nuevos dentro de sus patrones (`admin-attempt.ts`, `admin-attempt.test.ts`, `migration-guards.test.ts`). Sin dependencias, workflows, BACKLOG, AUTOPILOT, proveedores, credenciales ni despliegue.
+- Política de migraciones: 0005 no está integrada ni aplicada fuera de laboratorios descartables, por lo que se corrige en su sitio; un laboratorio migrado con el checksum anterior es rechazado y debe recrearse. Tras integrarla, todo cambio va en una migración nueva.
+- Local (Node 24.22.2, PostgreSQL 16 descartable, Chromium): lint y tipos limpios; 193 unitarias y 230 coordinación; build estándar correcto dos veces; integraciones 16/20/16/16 y LF-030 33/33; navegador 44+1+2+1+13 y administración 10/10 (60/60 con repeticiones). Las regresiones nuevas fallan contra `863b87b7` en una copia aislada y pasan con la corrección. Detalle y límites en la spec. Laboratorio detenido y borrado.
+- Pendiente: CI del SHA publicado, revisión independiente de este delta y autorización separada de merge. PR #27 sigue en DRAFT; no se fusiona ni se cambia `execution_enabled`.

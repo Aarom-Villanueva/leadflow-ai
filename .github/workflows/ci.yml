@@ -89,6 +89,10 @@ jobs:
         env:
           ANALYTICS_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf028_analytics_test
         run: npx --no-install vitest run --config vitest.analytics.config.ts
+      - name: Organization administration integration (isolated PostgreSQL database)
+        env:
+          ORGANIZATIONS_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf030_organizations_test
+        run: npx --no-install vitest run --config vitest.organizations.config.ts
       - run: npm run test:e2e
       - name: Real identity browser flow (ephemeral secret)
         env:
@@ -127,3 +131,13 @@ jobs:
           export AUTH_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
           echo "::add-mask::$AUTH_SECRET"
           npx --no-install playwright test --config playwright.analytics.config.ts
+      - name: Real organization administration browser flow (ephemeral secret)
+        env:
+          DATABASE_URL: postgres://lf030_test_runtime@127.0.0.1:5432/lf030_organizations_test
+          APP_ORIGIN: http://127.0.0.1:4314
+          ORGANIZATIONS_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/lf030_organizations_test
+        shell: bash
+        run: |
+          export AUTH_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
+          echo "::add-mask::$AUTH_SECRET"
+          npx --no-install playwright test --config playwright.organizations.config.ts

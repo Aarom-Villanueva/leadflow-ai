@@ -1,6 +1,9 @@
-import { organizationsRequest } from "@/modules/organizations/http";
+import { administrationRequest } from "@/modules/organizations/admin-http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request, context: { params: Promise<{ organizationId: string }> }) {
-  return organizationsRequest(request, (await context.params).organizationId, true);
+ const params = await context.params; return administrationRequest(request, params.organizationId, "profile");
+}
+export async function PATCH(request: Request, context: { params: Promise<{ organizationId: string }> }) {
+ const params = await context.params; return administrationRequest(request, params.organizationId, "profile");
 }

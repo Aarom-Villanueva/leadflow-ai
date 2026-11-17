@@ -1,0 +1,38 @@
+# Administración local de organizaciones — LF-030
+
+Incremento para miembros **ya existentes**. Acceso desde «Administración» en el inicio del espacio de una organización. Owner y admin pueden editar nombre/zona, consultar equipo y auditoría. Sales no puede administrar. No existe todavía un flujo de invitación, incorporación de personas, verificación de correo o recuperación de acceso; no añadir usuarios por SQL como procedimiento de producto.
+
+## Migración local explícita
+
+1. Utilizar exclusivamente una base dedicada en loopback, con las migraciones 0001–0004 verificadas y roles provisionador/runtime separados. El runner rechaza bases del sistema, conexiones remotas, ownership incorrecto, roles runtime privilegiados, esquemas desconocidos y checksum distinto.
+2. **Detener y drenar la versión antigua de la aplicación antes de 0005**. Una llamada que ya comenzó con el cuerpo antiguo de `lf_lock_membership` no incorpora retroactivamente la barrera nueva. Este PR no ofrece una migración en caliente de esas transacciones.
+3. Definir `IDENTITY_MIGRATION_URL` para el provisionador y `IDENTITY_RUNTIME_ROLE` para el runtime ya existente; ejecutar `node scripts/organizations/migrate.mjs`. No colocar contraseñas en comandos, documentos ni Git. El runner no genera credenciales, no crea bases ni roles y no inicia servicios.
+   El runner espera como máximo 5 s por cada bloqueo (`ORGANIZATIONS_MIGRATION_LOCK_TIMEOUT_MS`, entre 100 y 30000): si una transacción de la aplicación anterior sigue abierta falla con un mensaje claro y sin dejar cambios; drenar la aplicación y repetir. Antes de aplicar (y también al repetir con el mismo checksum) comprueba los privilegios **efectivos** del runtime —propios, heredados por pertenencia a roles, de PUBLIC y por columna— de escritura (INSERT, UPDATE, DELETE, TRUNCATE) sobre `organizations`, `memberships` y `organization_audit`. Si encuentra alguno aborta nombrando tabla, privilegio y origen; **no revoca nada**: revisar qué depende de ese permiso, retirarlo explícitamente como propietario y repetir. Dentro de la transacción vuelve a comprobar que privilegios por defecto del esquema no expongan al runtime el libro privado de recibos. Esta versión de 0005 sustituye a la del primer candidato, que no estaba integrada: un laboratorio migrado con la anterior es rechazado por checksum y debe recrearse.
+4. Arrancar la aplicación actualizada solo tras éxito. El runner hace esquema, grants y registro de checksum en una transacción; repetir con el mismo checksum no cambia nada. No hay rollback destructivo automático. Ante error, conservar la base y revisar el fallo antes de reintentar.
+
+## Permisos y consistencia
+
+- Admin gestiona otros admin/sales; nunca se modifica a sí mismo ni gestiona owners. Owner gestiona otros miembros, pero tampoco altera su propio rol/acceso salvo mediante la transferencia explícita.
+- Transferir convierte al actor en admin, al destinatario activo en owner y conserva otros owners. Requiere versiones de ambos. Toda mutación conserva al menos un owner activo.
+- Revocar es local a la organización. Conserva membresía, referencias de prospectos/seguimientos e historial; no elimina la identidad o sesiones globales. Restaurar recupera el mismo rol. Las asignaciones históricas no se reescriben ni se reasignan automáticamente.
+- Organización antes que membresías: operaciones comerciales toman SHARE, administrativas de escritura UPDATE; el permiso se verifica de nuevo tras esperar. Una operación comercial que ya obtuvo la barrera puede terminar antes de la revocación. Las siguientes se rechazan tras confirmarla.
+- Versión y clave de solicitud evitan sobrescritura silenciosa y duplicados. Perfil, roles, revocación, restauración, transferencia, auditoría y recibo se confirman juntos. Error de auditoría revierte todo.
+- La auditoría del endpoint lista solo eventos de administración (`organization.created`, `organization.profile_updated`, `membership.role_updated`, `membership.revoked`, `membership.restored`, `ownership.transferred`). Los demás eventos almacenados (prospectos, seguimientos, interacciones, cortes del dashboard) se conservan y no se listan aquí. Una acción administrativa nueva debe añadirse a esa lista.
+- El nombre de la organización rechaza vacíos o invisibles, controles, espacios Unicode distintos del espacio simple y marcas bidireccionales o de formato invisibles; admite tildes, otros idiomas y emoji compuestos. Longitud 2–100 puntos de código, igual en aplicación y SQL.
+- GET no escribe auditoría, recibos ni contadores. Listados paginados por cursor, ligados a organización. El cursor de auditoría conserva microsegundos e ID de desempate. No es una instantánea entre páginas: si hay cambios concurrentes, usar «Recargar datos» para empezar de nuevo.
+
+## Resultado sin confirmar
+
+Una respuesta perdida no demuestra que el cambio falló. La pantalla bloquea cambios nuevos y conserva ruta, método, payload, versiones y clave del intento. «Reintentar el mismo intento» consulta/repite esa misma identidad. Un 403/404 u otro rechazo al reintento tampoco demuestra que el original no se confirmó, por ejemplo tras perder acceso. La única excepción es un 409 `VERSION_CONFLICT`: el servidor consulta el recibo antes de comparar versiones y las versiones solo crecen, así que prueba que el original no se aplicó ni se aplicará; la pantalla descarta el intento y «Recargar datos» permite continuar. Consultar equipo/auditoría mediante otro administrador si ya no se puede resolver la confirmación.
+
+El intento pendiente solo vive en memoria del navegador. Cerrar, cambiar de organización o recargar la página pierde esa clave; esto se advierte en pantalla. No hay cola offline persistente, sincronización entre pestañas ni recuperación automática. Un conflicto conserva el borrador hasta la recarga explícita; no cambia versiones y reintenta a ciegas.
+
+## Laboratorio y CI
+
+- `ORGANIZATIONS_TEST_ADMIN_URL`: base nueva y descartable **lf030_organizations_test**, en loopback, administración del laboratorio. `npx --no-install vitest run --config vitest.organizations.config.ts` crea solo esa base y roles `lf030_test_owner`/`lf030_test_runtime`; rechaza si ya existe. No usar una base con datos reales ni permisos productivos. La suite conserva la base para el navegador posterior y cierra sus pools.
+- Navegador: `DATABASE_URL` del runtime de esa base, `APP_ORIGIN=http://127.0.0.1:4314`, `AUTH_SECRET` sintético efímero generado por el laboratorio y la misma `ORGANIZATIONS_TEST_ADMIN_URL`; `npx --no-install playwright test --config playwright.organizations.config.ts`. El acceso administrativo solo prepara/comprueba fixtures sintéticas; todas las acciones de producto van por rutas reales con sesión.
+- CI agrega estas dos verificaciones al job existente, con PostgreSQL 16. No despacha agentes, proveedores ni servicios pagados. Los secretos sintéticos solo viven en el proceso y se enmascaran; no se añaden a Git ni se imprimen.
+
+## Límites antes de un piloto
+
+Sin retención/limpieza del ledger ni auditoría, sin carga a escala ni política nueva por IP/proxy; se conserva la ventana fija de 120 intentos de mutación por identidad/minuto compartida entre organizaciones, con la ráfaga posible en el cambio de minuto. La auditoría expone metadatos de cambios, no texto de perfil ni secretos. La identidad del actor y su nombre proceden de la sesión/base; el nombre mostrado en una auditoría es el actual, no una copia histórica. RLS y las funciones confiables dependen del rol provisionador separado del runtime y de la autenticación real del servidor. Sin invitaciones/correo, despliegue, IA o AUTOPILOT.
