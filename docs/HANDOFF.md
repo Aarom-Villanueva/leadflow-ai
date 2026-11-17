@@ -1047,3 +1047,8 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Aclaración histórica: la revisión independiente de LF-028/head `589f6d284aa3386b6b558ef52cdaccddb1cd6d26` fue ejecutada y comunicada al propietario por Codex en este chat antes de su autorización de merge; no equivale a una revisión formal publicada en GitHub. No se inventa un enlace de revisión pública.
 - Reserva registrada antes de código: rutas del registro JSON. Contrato v1 en docs/specs/LF-030.md. Alcance: perfil de organización, equipo existente, cambio de rol/revocación/restauración, transferencia de propiedad y auditoría, con controles de concurrencia e idempotencia. No se añaden cuentas sin consentimiento, invitaciones ni correo.
 - Estado: propuesta de contratos/esquema en preparación. La regla de AGENTS.md requiere revisión y aprobación antes de implementarlos; no se afirma que este paso esté satisfecho. No se han ejecutado migraciones ni escrito implementación. BACKLOG, agentes, IA, dependencias y despliegue intactos.
+
+### LF-030 — autorización de implementación
+
+- El propietario autorizó expresamente la excepción puntual de secuencia: «Sí, implementar ahora y revisar antes de fusionar», después de publicar el contrato completo del PR #27. Se implementa en esta rama en borrador; Sonnet revisará el PR completo antes de cualquier autorización de merge. No se altera AGENTS.md ni la exigencia de revisión independiente/CI/merge autorizado.
+- Se conserva el contrato y la reserva; las migraciones solo se ensayan en laboratorios propios descartables. Sin invitaciones, correo, secretos productivos, servicios, gastos, despliegue o agentes.
