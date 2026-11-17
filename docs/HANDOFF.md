@@ -567,13 +567,42 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-029",
       "owner": "ChatGPT",
       "branch": "security/lf-029-next-security-update",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
         "docs/specs/LF-029.md",
         "package.json",
         "package-lock.json"
+      ],
+      "completion": {
+        "head_sha": "9e0e5815e7924b243bec20499a5b5d358d9d4916",
+        "merge_sha": "c93fcc1468ce554bba20fe787cad6739e09b0c28"
+      }
+    },
+    {
+      "id": "LF-030",
+      "owner": "ChatGPT",
+      "branch": "impl/lf-030-organization-members",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-030.md",
+        "docs/ORGANIZATION-ADMIN-LOCAL.md",
+        "src/shared/database/migrations/0005_organization_admin.sql",
+        "scripts/organizations/**",
+        "src/modules/organizations/admin-*",
+        "src/app/app/[[]organizationId]/administration/page.tsx",
+        "src/app/api/organizations/[[]organizationId]/administration/**",
+        "src/app/api/organizations/[[]organizationId]/members/**",
+        "src/app/api/organizations/[[]organizationId]/ownership/**",
+        "tests/unit/organizations/**",
+        "tests/integration/organizations/**",
+        "tests/organizations-e2e/**",
+        "vitest.organizations.config.ts",
+        "playwright.organizations.config.ts",
+        ".github/workflows/ci.yml"
       ]
     }
   ]
@@ -1010,3 +1039,11 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Implementado el patch 16.4.6 de Next.js y su configuración ESLint, con lock reproducible. Solo cinco archivos reservados, sin cambios de aplicación. npm audit deja de identificar GHSA-mfr8-8qww-v76h; 11 avisos moderados ajenos permanecen, sin reparación indiscriminada.
 - Lint/tipos/build limpios (build con caché nueva, sin aviso de seguridad); 174 unitarias, 230 coordinación, integraciones PostgreSQL 18 identidad/comercial/actividad/analítica 16/20/16/16 y navegador Edge identidad/comercial/actividad/dashboard 1/2/1/13, todos aprobados. E2E base 44/44 en la repetición completa con output separado; resultados e incidencias transparentes en spec LF-029. Ambos clústeres propios detenidos.
 - CI del candidato se observa tras publicar y se informa en el PR sobre el SHA exacto. No hay autorización de merge. Revisión independiente Claude pendiente. BACKLOG, workflows y AUTOPILOT intactos.
+
+## LF-030 — administración de organizaciones y miembros
+
+- El propietario autorizó desarrollar el siguiente bloque de administración tras el merge de PR #26. Responsable ChatGPT; revisión independiente Claude pendiente. Rama `impl/lf-030-organization-members`, base `c93fcc1468ce554bba20fe787cad6739e09b0c28`. Sin autorización de merge ni despliegue.
+- LF-029 completed con head `9e0e5815e7924b243bec20499a5b5d358d9d4916` y merge real `c93fcc1468ce554bba20fe787cad6739e09b0c28`, padres `1160eea6afc0a82ce17c279cb1ee18459101431a` y el head auditado. Revisión independiente de Sonnet comunicada por el propietario en este chat, sin revisión/autoaprobación publicada en GitHub; ambos checks confirmados antes del merge.
+- Aclaración histórica: la revisión independiente de LF-028/head `589f6d284aa3386b6b558ef52cdaccddb1cd6d26` fue ejecutada y comunicada al propietario por Codex en este chat antes de su autorización de merge; no equivale a una revisión formal publicada en GitHub. No se inventa un enlace de revisión pública.
+- Reserva registrada antes de código: rutas del registro JSON. Contrato v1 en docs/specs/LF-030.md. Alcance: perfil de organización, equipo existente, cambio de rol/revocación/restauración, transferencia de propiedad y auditoría, con controles de concurrencia e idempotencia. No se añaden cuentas sin consentimiento, invitaciones ni correo.
+- Estado: propuesta de contratos/esquema en preparación. La regla de AGENTS.md requiere revisión y aprobación antes de implementarlos; no se afirma que este paso esté satisfecho. No se han ejecutado migraciones ni escrito implementación. BACKLOG, agentes, IA, dependencias y despliegue intactos.
