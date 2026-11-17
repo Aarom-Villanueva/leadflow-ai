@@ -538,7 +538,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-028",
       "owner": "Claude",
       "branch": "claude/great-hopper-au1q2b",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -557,6 +557,23 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "src/shared/database/migrations/0004_analytics.sql",
         "scripts/analytics/**",
         "src/shared/database/runtime.ts"
+      ],
+      "completion": {
+        "head_sha": "589f6d284aa3386b6b558ef52cdaccddb1cd6d26",
+        "merge_sha": "1160eea6afc0a82ce17c279cb1ee18459101431a"
+      }
+    },
+    {
+      "id": "LF-029",
+      "owner": "ChatGPT",
+      "branch": "security/lf-029-next-security-update",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-029.md",
+        "package.json",
+        "package-lock.json"
       ]
     }
   ]
@@ -979,3 +996,11 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Observación fuera de alcance: `next build` termina a veces con un aviso de la CLI de Next.js 16.4.4 sobre una vulnerabilidad conocida y pide actualizar; al repetir el mismo comando compila. No se cambió ninguna dependencia: actualizar Next.js requiere autorización y tarea propias.
 - Límites: la identidad de un intento desconocido vive en memoria y se pierde al recargar (la lista muestra si el corte existe); sin reintentos automáticos.
 - Pendiente: CI del SHA publicado y nueva revisión independiente. Sin autoaprobación, merge ni auto-merge.
+
+## LF-029 — actualización de seguridad de Next.js
+
+- Trabajo manual autorizado por el propietario tras la revisión independiente y merge del PR #25: preparar un PR separado para resolver el aviso de seguridad, sin fusionarlo. Responsable ChatGPT; revisión independiente Claude pendiente. Rama `security/lf-029-next-security-update`, base `1160eea6afc0a82ce17c279cb1ee18459101431a`.
+- LF-028 completed: head auditado `589f6d284aa3386b6b558ef52cdaccddb1cd6d26`, merge real `1160eea6afc0a82ce17c279cb1ee18459101431a`, padres `26ca90b6d350436b9050033ab4c9c77f1079218e` y ese head; árbol idéntico al candidato. CI y revisión independiente confirmadas antes del merge.
+- Reserva y spec registradas antes de cambiar dependencias: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-029.md`, `package.json`, `package-lock.json`. Manifiesto SHA-256 final en el mensaje del commit de entrega, sin hash autorreferente.
+- Alcance: Next.js y su configuración ESLint de 16.4.4 a 16.4.6, patch estable de la misma serie; regenerar lock y validar instalación congelada, ausencia del advisory de Next, lint/tipos/build, pruebas de producto y CI real. Contratos, apariencia y migraciones intactos.
+- Estado inicial: preparación registrada; implementación, pruebas y CI pendientes. No se presenta ninguna comprobación futura como ejecutada. Sin agentes, IA conectada, proveedores, credenciales productivas, gastos o despliegue. BACKLOG y AUTOPILOT intactos.
