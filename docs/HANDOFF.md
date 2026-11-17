@@ -504,7 +504,7 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
       "id": "LF-027",
       "owner": "ChatGPT",
       "branch": "impl/lf-027-interactions-followups",
-      "state": "active",
+      "state": "completed",
       "files": [
         "docs/HANDOFF.md",
         "docs/ROADMAP.md",
@@ -528,6 +528,35 @@ Este registro versionado es la fuente operativa de reservas, no las notas histó
         "scripts/check-coordination.mjs",
         "tests/coordination/release.test.mjs",
         "src/components/ui/dialog.tsx"
+      ],
+      "completion": {
+        "head_sha": "be6ed88f7625bec408f2f2b8c32d42d8be1dce25",
+        "merge_sha": "26ca90b6d350436b9050033ab4c9c77f1079218e"
+      }
+    },
+    {
+      "id": "LF-028",
+      "owner": "Claude",
+      "branch": "claude/great-hopper-au1q2b",
+      "state": "active",
+      "files": [
+        "docs/HANDOFF.md",
+        "docs/ROADMAP.md",
+        "docs/specs/LF-028.md",
+        "src/modules/analytics/**",
+        "src/modules/leads/workspace.tsx",
+        "src/app/app/[[]organizationId]/page.tsx",
+        "src/app/app/[[]organizationId]/dashboard/**",
+        "src/app/api/organizations/[[]organizationId]/dashboard/**",
+        "tests/unit/analytics/**",
+        "tests/integration/analytics/**",
+        "tests/analytics-e2e/**",
+        "vitest.analytics.config.ts",
+        "playwright.analytics.config.ts",
+        ".github/workflows/ci.yml",
+        "src/shared/database/migrations/0004_analytics.sql",
+        "scripts/analytics/**",
+        "src/shared/database/runtime.ts"
       ]
     }
   ]
@@ -910,3 +939,43 @@ Responsable ChatGPT; revisión independiente Claude pendiente. El propietario au
 - Revisión independiente sin hallazgos bloqueantes/medios/altos; dos bajos corregidos: NUL/sustitutos UTF-16 sueltos ahora 422 sin cambios de actividad/auditoría ni pérdida silenciosa (el intento consume límite), y foco en encabezado estable después de confirmar completar/cancelar y retirar la tarjeta. Volver/Escape siguen devolviendo foco al disparador. No cambios de esquema/migraciones, RLS, permisos, idempotencia o gate.
 - Local: 122/122 unitarias, integración de actividad 16/16 PostgreSQL 18, navegador actividad 1/1 Edge con confirmaciones/retorno de foco y axe, lint/tipos/build limpios. Las tres regresiones de texto fallan contra los contratos del SHA auditado y pasan con los nuevos. Laboratorio LF-027 separado, detenido después de validar, sin tocar el servicio Windows. CI del nuevo SHA se observa tras publicar, sin reutilizar el del anterior.
 - Informativos documentados: cursor asOf modificable sin autenticidad temporal (no afecta RLS); detalle vacío/null distintos para hashes existentes. El nombre de prospecto legado queda fuera de esta corrección. Sin cambios de paquetes/BACKLOG, design, agentes, proveedores o despliegue. Misma reserva LF-027 y PR #24 DRAFT; revisión independiente del delta pendiente, no autorización de merge.
+
+## LF-028 — dashboard real completo
+
+- Responsable: Claude. Revisor independiente: Codex, pendiente. Rama `claude/great-hopper-au1q2b` (la rama designada de la sesión, reiniciada desde main porque solo contenía historia ya integrada), base `26ca90b6d350436b9050033ab4c9c77f1079218e`. El propietario autorizó implementar el dashboard real completo tras integrar LF-027; no autoriza merge ni despliegue.
+- LF-027 completed con evidencia Git real del merge de PR #24: head `be6ed88f7625bec408f2f2b8c32d42d8be1dce25`, merge `26ca90b6d350436b9050033ab4c9c77f1079218e` (padres `5d577336…` y `be6ed88f…`), comprobado en el main real antes de registrar.
+- Reserva registrada antes de código: `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/specs/LF-028.md`, `src/modules/analytics/**`, `src/modules/leads/workspace.tsx`, `src/app/app/[[]organizationId]/page.tsx`, `src/app/app/[[]organizationId]/dashboard/**`, `src/app/api/organizations/[[]organizationId]/dashboard/**`, `tests/unit/analytics/**`, `tests/integration/analytics/**`, `tests/analytics-e2e/**`, `vitest.analytics.config.ts`, `playwright.analytics.config.ts`, `.github/workflows/ci.yml`.
+- Alcance: métricas R08 calculadas con consultas PostgreSQL reales por organización (prospectos por etapa, conversión a ganado por cohorte, seguimientos pendientes/vencidos), endpoint de lectura con sesión/membresía/RLS, pantalla real `/app/:org/dashboard` con los componentes aprobados y pruebas unitarias, PostgreSQL real y navegador. Contrato y decisiones explícitas en docs/specs/LF-028.md.
+- Sin migración ni cambio de esquema, permisos o dependencias: solo lectura sobre 0001–0003 con los grants existentes. `/design`, BACKLOG y AUTOPILOT sin cambios. La fila LF-006 del roadmap original (dashboard real) queda cubierta por esta tarea; no se edita esa fila ni BACKLOG.json.
+- Pruebas en clúster PostgreSQL descartable propio y PostgreSQL 16 de CI, con datos sintéticos. Sin proveedores, credenciales productivas, IA, correo ni gastos.
+
+### LF-028 — candidato local verificado
+
+- Entregado: módulo `src/modules/analytics` (funciones puras, contrato, consulta única y endpoint de lectura), ruta `GET /api/organizations/:org/dashboard`, pantalla `/app/:org/dashboard` enlazada desde la navegación del espacio de trabajo y el inicio de la organización, pruebas unitarias, de integración y de navegador, y dos pasos nuevos en el workflow de verificación existente. Sin migración, grants, funciones SQL ni dependencias nuevas; `/design`, BACKLOG y AUTOPILOT intactos.
+- Local (Node 24.22.2, PostgreSQL 16.15 descartable en loopback 55428, Chromium del entorno): lint, tipos y build limpios; 151/151 unitarias (29 nuevas); 230/230 coordinación; integración identidad 16/16, comercial 20/20, actividad 16/16 y analítica 9/9; navegador 44/44, identidad 1/1, comercial 2/2, actividad 1/1 y dashboard 1/1. Laboratorio detenido y borrado; ningún servicio existente tocado.
+- Fallos intermedios solo en pruebas propias (dos expectativas y tres ajustes del recorrido de navegador), corregidos y detallados en docs/specs/LF-028.md.
+- Decisiones explícitas que requieren confirmación (spec LF-028): archivados incluidos en la conversión, «llegó a ganado» por eventos, seguimientos de archivados contados, días de calendario locales, corte no persistido, intervalo sin altas que no oculta el resto y lectura para los tres roles.
+- Pendiente: CI del SHA publicado y revisión independiente de Codex. Sin autoaprobación, merge ni auto-merge. Manifiesto SHA-256 de los blobs finales en el commit y en el PR.
+
+### LF-028 — ampliación tras la revisión independiente de 1739eaf
+
+- La revisión independiente del candidato `1739eaf2b84a60ffc6745c14bac65128cf3ac51c` encontró tres defectos. El propietario confirmó la conversión histórica por eventos (archivados incluidos, cada prospecto una vez) y pidió mantener el corte persistido. Se corrigen en el mismo PR #25, que sigue en DRAFT.
+- Reserva ampliada antes de editar: `src/shared/database/migrations/0004_analytics.sql`, `scripts/analytics/**` y `src/shared/database/runtime.ts`, añadidos al registro JSON y a la fila LF-028 del roadmap. Contrato v2 y migración definidos en docs/specs/LF-028.md antes del código.
+- Alcance de la ampliación: (1) cada evento de etapa guarda el tipo de su etapa destino en el momento del evento, de modo que reconfigurar una etapa no reinterpreta la historia; (2) el inicio del intervalo es el primer instante real del día local, también con medianoches repetidas o inexistentes; (3) guardado real de cortes mediante una operación explícita, atómica e idempotente, con GET sin efectos secundarios.
+- 0004 es aditiva sobre 0001–0003, con runner local explícito, checksum y rollback como las anteriores. Sin dependencias nuevas, servicios externos, credenciales productivas, despliegue ni agentes; BACKLOG y AUTOPILOT intactos.
+- Candidato v2 verificado en local (Node 24.22.2, PostgreSQL 16.15 descartable en loopback 55428, Chromium del entorno): lint, tipos y build limpios; 162/162 unitarias; 230/230 coordinación; integración identidad 16/16, comercial 20/20, actividad 16/16 y analítica 16/16; navegador 44/44, identidad 1/1, comercial 2/2, actividad 1/1 y dashboard 1/1. Laboratorio detenido y borrado.
+- Entregado en la ampliación: migración `0004_analytics.sql` y runner `scripts/analytics/migrate.mjs`; consulta con tipo histórico e inicio real del día local; `GET` y `POST /api/organizations/:org/dashboard/snapshots`; botón «Guardar corte» y lista «Cortes guardados». Los GET siguen sin efectos secundarios.
+- Límites: los eventos anteriores a 0004 toman el tipo vigente al migrar; cortes sin borrado, edición, retención ni paginación; una transición de zona fuera de la rejilla de 15 minutos alrededor de la medianoche usaría el respaldo documentado.
+- Pendiente: CI del SHA publicado y nueva revisión independiente. PR #25 en DRAFT, sin autoaprobación, merge ni auto-merge.
+
+### LF-028 — coordinación del estado de la pantalla tras la revisión de 6001c69
+
+- La revisión independiente del candidato `6001c690581f48c3bea6281ab49638bd14c0fc67` reprodujo tres defectos de interfaz: confirmación de un corte de 90 días atribuida a cifras de 30; una lista vacía antigua que borraba el corte confirmado; y una respuesta perdida presentada como «No se guardó ningún corte nuevo». Se corrigen en el mismo PR #25, que sigue en DRAFT. Misma reserva, sin ampliación: todos los archivos tocados ya estaban reservados.
+- Causa común y solución: el estado de la pantalla pasa a un reductor puro (`src/modules/analytics/dashboard-state.ts`) con identidad por solicitud; las afirmaciones de la pantalla se derivan del estado. Diez reglas en docs/specs/LF-028.md («contrato v3»). Sin biblioteca nueva ni cambios de contrato HTTP, esquema, migraciones, permisos, reglas de negocio, dependencias o apariencia. Decisiones aprobadas intactas (conversión histórica con archivados, cada prospecto una vez, zona de la organización, corte persistido).
+- Guardado: desenlaces confirmado, rechazado (4xx) y desconocido (sin respuesta, ilegible o 5xx). El intento desconocido conserva clave e intervalo, solo se resuelve reintentando esa misma solicitud aunque el selector cambie, y bloquea otros guardados hasta resolverse.
+- Pruebas nuevas: 12 unitarias del reductor y 12 recorridos de navegador (`tests/analytics-e2e/state.spec.ts`) que retienen, reordenan o pierden respuestas reales del servidor y contrastan la pantalla con cortes y auditorías leídos de la base del laboratorio. El paso de navegador del dashboard en CI recibe `ANALYTICS_TEST_ADMIN_URL` (la misma base descartable) para esa comprobación.
+- Evidencia contra el candidato anterior: en una copia aislada de `6001c69` (`git archive`, sin worktree) con las pruebas nuevas, las tres regresiones fallan en la aserción de su defecto; con la corrección pasan.
+- Local (Node 24.22.2, PostgreSQL 16 descartable en loopback 55428, Chromium del entorno): lint y tipos limpios; build correcto al segundo intento (ver observación); 174/174 unitarias; 230/230 coordinación; integración identidad 16/16, comercial 20/20, actividad 16/16 y analítica 16/16 sobre bases nuevas; navegador 44/44, identidad 1/1, comercial 2/2, actividad 1/1 y dashboard 13/13 (39/39 con tres repeticiones). Laboratorio detenido y borrado al terminar; ningún servicio existente tocado.
+- Observación fuera de alcance: `next build` termina a veces con un aviso de la CLI de Next.js 16.4.4 sobre una vulnerabilidad conocida y pide actualizar; al repetir el mismo comando compila. No se cambió ninguna dependencia: actualizar Next.js requiere autorización y tarea propias.
+- Límites: la identidad de un intento desconocido vive en memoria y se pierde al recargar (la lista muestra si el corte existe); sin reintentos automáticos.
+- Pendiente: CI del SHA publicado y nueva revisión independiente. Sin autoaprobación, merge ni auto-merge.
