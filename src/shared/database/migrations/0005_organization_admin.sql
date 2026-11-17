@@ -39,6 +39,14 @@ create table organization_admin_requests(
 alter table organization_admin_requests enable row level security;
 -- Private provisioner-owned ledger: no runtime policies or direct grants. Functions below are the only runtime path.
 
+-- Organization name rule: identical code point lists to src/modules/organizations/admin-contracts.ts (no locale-dependent classes).
+-- Rejects controls, non-ASCII spaces, invisible/format and bidirectional characters; needs 2+ visible characters; 2..100 code points.
+create function lf_org_name_valid(p text) returns boolean language sql immutable set search_path=pg_catalog as $$
+ select p is not null and char_length(p) between 2 and 100
+  and p !~ '[\u0001-\u001F\u007F-\u009F ­؜ ᠎ -​‎‏ -  ⁠-⁯　﻿￹-￻\U000E0000-\U000E007F]'
+  and char_length(regexp_replace(p,'[ ̀-ͯ᪰-᫿᷀-᷿⃐-⃿︀-️︠-︯‌‍\U000E0100-\U000E01EF]','','g'))>=2
+$$;
+
 create function lf_admin_access(p_org uuid,p_write boolean) returns public.memberships
 language plpgsql security definer set search_path=pg_catalog as $$
 declare actor text:=nullif(current_setting('app.user_id',true),'');m public.memberships;
@@ -86,7 +94,8 @@ begin
   select a.id,a.action,a.entity_id as "entityId",a.actor_user_id as "actorUserId",u.name as "actorName",a.request_id as "requestId",a.created_at as "createdAt",a.safe_metadata as metadata,
    to_char(a.created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "cursorAt"
   from public.organization_audit a left join public."user" u on u.id=a.actor_user_id
-  where a.organization_id=p_org and(p_at is null or(a.created_at,a.id)<(p_at,p_id)) order by a.created_at desc,a.id desc limit p_limit
+  where a.organization_id=p_org and a.action in('organization.created','organization.profile_updated','membership.role_updated','membership.revoked','membership.restored','ownership.transferred')
+   and(p_at is null or(a.created_at,a.id)<(p_at,p_id)) order by a.created_at desc,a.id desc limit p_limit
  )r;
  return result;
 end;$$;
@@ -113,10 +122,10 @@ begin
  if p_operation='profile' then
   select * into org from public.organizations where id=p_org;
   if org.version is distinct from (p_input->>'version')::integer then raise exception 'VERSION_CONFLICT' using errcode='P0001';end if;
-  if jsonb_typeof(p_input->'name')<>'string' or length(trim(p_input->>'name')) not between 2 and 100
+  if jsonb_typeof(p_input->'name')<>'string' or not public.lf_org_name_valid(btrim(p_input->>'name'))
    or jsonb_typeof(p_input->'timezone')<>'string' or not exists(select 1 from pg_timezone_names where name=p_input->>'timezone') then
    raise exception 'invalid profile' using errcode='22023';end if;
-  update public.organizations set name=trim(p_input->>'name'),timezone=p_input->>'timezone' where id=p_org returning * into org;
+  update public.organizations set name=btrim(p_input->>'name'),timezone=p_input->>'timezone' where id=p_org returning * into org;
   entity:=p_org;action:='organization.profile_updated';metadata:=jsonb_build_object('version',org.version);
   result:=jsonb_build_object('id',org.id,'version',org.version);
  else
@@ -165,5 +174,6 @@ begin
 end;$$;
 
 revoke all on organization_admin_requests from public;
+revoke all on function lf_org_name_valid(text) from public;
 revoke all on function lf_admin_version(),lf_admin_access(uuid,boolean),lf_admin_info(uuid),lf_admin_members(uuid,uuid,integer),lf_admin_audit(uuid,timestamptz,uuid,integer),lf_admin_mutate(uuid,uuid,text,jsonb) from public;
 commit;

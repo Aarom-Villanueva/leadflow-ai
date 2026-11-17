@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Banner } from "@/components/ui/banner";
 import { Dialog } from "@/components/ui/dialog";
-import type { AdminAudit, AdminInfo, AdminMember, AdminPage, AdminReceipt } from "./admin-contracts";
+import { classifyAttempt } from "./admin-attempt";
+import type { AdminAudit, AdminInfo, AdminMember, AdminPage } from "./admin-contracts";
 type Attempt = { path: string; method: string; body: Record<string, unknown>; label: string };
 async function read<T>(path: string): Promise<T> {
   const response = await fetch(path, { cache: "no-store" });
@@ -42,15 +43,13 @@ export function AdministrationClient({ organizationId }: { organizationId: strin
     if (sending.current) return; sending.current = true;
     ++generation.current; setLoading(false); setConfirmation(undefined); setPending(attempt); setMode("sending"); setNotice("");
     try {
-      const response = await fetch(attempt.path, { method: attempt.method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(attempt.body) });
-      const body = await response.json() as AdminReceipt & { message?: string };
-      if (!response.ok) {
-        if (response.status >= 500 || retry) throw Error();
-        setMode("idle"); setPending(undefined); setError(body.message ?? "Cambio rechazado. Recarga los datos antes de volver a intentarlo.");
-      } else if (body.requestId !== attempt.body.requestId || typeof body.operation !== "string" || !body.result || typeof body.result !== "object") throw Error();
-      else { setMode("idle"); setPending(undefined); setNotice(`${attempt.label}: cambio confirmado.`); await load(); router.refresh(); }
-    } catch { setMode("uncertain"); setNotice("Resultado no confirmado. El cambio puede haberse guardado. Reintenta el mismo intento para comprobarlo; no inicies otro cambio."); }
-    finally { sending.current = false; focusStatus(); }
+    let status: number | undefined, body: unknown;
+    try { const response = await fetch(attempt.path, { method: attempt.method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(attempt.body) }); status = response.status; body = await response.json().catch(() => undefined); } catch { status = undefined; }
+    const outcome = classifyAttempt(String(attempt.body.requestId), retry, status, body);
+    if (outcome === "confirmed") { setMode("idle"); setPending(undefined); setNotice(`${attempt.label}: cambio confirmado.`); await load(); router.refresh(); }
+    else if (outcome === "rejected") { setMode("idle"); setPending(undefined); setError(retry ? "El cambio pendiente no se aplicó porque los datos cambiaron. Recarga los datos antes de volver a intentarlo." : (body as { message?: string }).message ?? "Cambio rechazado. Recarga los datos antes de volver a intentarlo."); }
+    else { setMode("uncertain"); setNotice("Resultado no confirmado. El cambio puede haberse guardado. Reintenta el mismo intento para comprobarlo; no inicies otro cambio."); }
+    } finally { sending.current = false; focusStatus(); }
   }
   const disabled = loading || !!error || mode !== "idle";
   const prepare = (path: string, body: Record<string, unknown>, label: string, method = "PATCH") => { trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setConfirmation({ path: root + path, method, body: { ...body, requestId: crypto.randomUUID() }, label }); };
